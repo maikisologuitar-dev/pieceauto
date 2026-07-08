@@ -1,0 +1,72 @@
+"use client";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const TOKEN_KEY = "admin_token";
+
+export function getToken() {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(TOKEN_KEY);
+}
+export function setToken(t) { window.localStorage.setItem(TOKEN_KEY, t); }
+export function clearToken() { window.localStorage.removeItem(TOKEN_KEY); }
+
+async function authFetch(path, options = {}) {
+  const token = getToken();
+  const res = await fetch(`${API}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  if (res.status === 401) {
+    clearToken();
+    if (typeof window !== "undefined") window.location.href = "/admin/login";
+    throw new Error("Session expirée");
+  }
+  return res;
+}
+
+export async function adminLogin(email, password) {
+  const res = await fetch(`${API}/api/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Échec de connexion");
+  setToken(data.token);
+  return data;
+}
+
+export async function getStats() {
+  const r = await authFetch("/api/admin/stats"); return r.json();
+}
+export async function getOrders(status = "") {
+  const r = await authFetch(`/api/admin/orders${status ? `?status=${status}` : ""}`); return r.json();
+}
+export async function getOrder(id) {
+  const r = await authFetch(`/api/admin/orders/${id}`); return r.json();
+}
+export async function updateOrderStatus(id, status) {
+  const r = await authFetch(`/api/admin/orders/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+  return r.json();
+}
+export function invoiceUrl(id) {
+  return `${API}/api/admin/orders/${id}/invoice`;
+}
+export async function getAdminProducts(q = "") {
+  const r = await authFetch(`/api/admin/products${q ? `?q=${encodeURIComponent(q)}` : ""}`); return r.json();
+}
+export async function updateProduct(id, patch) {
+  const r = await authFetch(`/api/admin/products/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  return r.json();
+}
+
+// Ouvre la facture PDF avec le token en header (via blob)
+export async function openInvoice(id) {
+  const r = await authFetch(`/api/admin/orders/${id}/invoice`);
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+}

@@ -1,0 +1,18 @@
+{
+  "name": "piecesauto-next",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "import": "node scripts/import-scraped.js data/pieces_auto_produits.json",
+    "api": "cd api && npm start",
+    "web": "cd web && npm run dev",
+    "export-prices": "node scripts/export-prices.js data/prix.csv",
+    "import-prices": "node scripts/import-prices.js data/prix.csv",
+    "fetch-prices": "node scripts/fetch-real-prices.js",
+    "create-admin": "node scripts/create-admin.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.0",
+    "playwright": "^1.48.0"
+  }
+}
