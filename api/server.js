@@ -253,7 +253,8 @@ app.post("/api/orders", async (req, res) => {
 });
 
 // ------------------------------------------------------------------ //
-app.listen(PORT, () => {
-  console.log(`[✓] API PiècesAuto démarrée : http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`[✓] API PiècesAuto démarrée : http://0.0.0.0:${PORT}`);
   console.log(`    Test : http://localhost:${PORT}/health`);
 });
+
