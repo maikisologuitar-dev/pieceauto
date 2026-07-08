@@ -4,6 +4,11 @@
  * Endpoints :
  *   GET  /health
  *   GET  /api/products?page=1&limit=12&q=filtre&category=slug
+rver.js — API Express du catalogue PiècesAuto
+ *
+ * Endpoints :
+ *   GET  /health
+ *   GET  /api/products?page=1&limit=12&q=filtre&category=slug
  *   GET  /api/products/:slug
  *   GET  /api/categories
  *   POST /api/orders          (commande avec règlement hors-ligne)
@@ -19,22 +24,41 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Connexion : priorité à DATABASE_URL (Railway/production), sinon variables
-// séparées (développement local).
-const pool = new Pool(
-  process.env.DATABASE_URL
-    ? {
-        connectionString: process.env.DATABASE_URL,
-        ssl: { rejectUnauthorized: false },
-      }
-    : {
-        host: process.env.PGHOST || "localhost",
-        port: Number(process.env.PGPORT || 5432),
-        database: process.env.PGDATABASE || "piecesauto",
-        user: process.env.PGUSER || "postgres",
-        password: process.env.PGPASSWORD || "postgres",
-      }
-);
+const pool = new Pool({
+  host: process.env.PGHOST || "localhost",
+  port: Number(process.env.PGPORT || 5432),
+  database: process.env.PGDATABASE || "piecesauto",
+  user: process.env.PGUSER || "postgres",
+  password: process.env.PGPASSWORD || "postgres",
+});
+
+const PORT = Number(process.env.PORT || 4000);
+
+// Routes back-office (login, commandes, produits, factures PDF)
+const registerAdminRoutes = require("./admin");
+registerAdminRoutes(app, pool);
+ *   GET  /api/products/:slug
+ *   GET  /api/categories
+ *   POST /api/orders          (commande avec règlement hors-ligne)
+ *
+ * Démarrage :  node server.js   (port 4000 par défaut)
+ */
+
+const express = require("express");
+const cors = require("cors");
+const { Pool } = require("pg");
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const pool = new Pool({
+  host: process.env.PGHOST || "localhost",
+  port: Number(process.env.PGPORT || 5432),
+  database: process.env.PGDATABASE || "piecesauto",
+  user: process.env.PGUSER || "postgres",
+  password: process.env.PGPASSWORD || "postgres",
+});
 
 const PORT = Number(process.env.PORT || 4000);
 
