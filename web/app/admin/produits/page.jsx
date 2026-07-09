@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import {
   getAdminProducts, updateProduct,
-  createProduct, getAdminCategories, getAdminBrands,
+  createProduct, getAdminCategories, getAdminBrands, uploadImages,
 } from "@/lib/admin";
 
 const STOCK_LABELS = { en_stock: "En stock", rupture: "Rupture", sur_commande: "Sur commande" };
@@ -74,6 +74,8 @@ function NewProductForm({ onCreated }) {
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
+  const [uploadedUrls, setUploadedUrls] = useState([]);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -91,11 +93,30 @@ function NewProductForm({ onCreated }) {
         : [...f.category_ids, id],
     }));
 
+  const onFilesSelected = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setError(""); setUploading(true);
+    try {
+      const urls = await uploadImages(files);
+      setUploadedUrls((prev) => [...prev, ...urls]);
+    } catch (err) {
+      setError(err.message);
+    }
+    setUploading(false);
+    e.target.value = ""; // permet de re-sélectionner les mêmes fichiers
+  };
+
+  const removeUploaded = (url) =>
+    setUploadedUrls((prev) => prev.filter((u) => u !== url));
+
   const submit = async () => {
     setError(""); setMsg("");
     if (!form.title.trim()) { setError("Le titre est obligatoire."); return; }
     setSubmitting(true);
     try {
+      const manualUrls = form.images.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+      const allImages = [...uploadedUrls, ...manualUrls];
       const payload = {
         title: form.title,
         brand: form.brand || null,
@@ -105,7 +126,7 @@ function NewProductForm({ onCreated }) {
         short_desc: form.short_desc || null,
         long_desc: form.long_desc || null,
         category_ids: form.category_ids,
-        images: form.images.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean),
+        images: allImages,
       };
       const res = await createProduct(payload);
       setMsg(`Produit créé (réf. interne ${res.slug}).`);
@@ -114,6 +135,7 @@ function NewProductForm({ onCreated }) {
         stock_status: "en_stock", short_desc: "", long_desc: "",
         images: "", category_ids: [],
       });
+      setUploadedUrls([]);
       onCreated?.();
     } catch (e) { setError(e.message); }
     setSubmitting(false);
@@ -171,7 +193,29 @@ function NewProductForm({ onCreated }) {
         </div>
 
         <div style={{ gridColumn: "1 / -1" }}>
-          <label>Images (une URL par ligne, ou séparées par des virgules)</label>
+          <label>Images du produit — uploader depuis l'ordinateur</label>
+          <input type="file" accept="image/*" multiple onChange={onFilesSelected}
+            disabled={uploading} style={{ display: "block", marginTop: 6 }} />
+          {uploading && <span style={{ color: "var(--steel)", fontSize: 13 }}>Envoi en cours…</span>}
+          {uploadedUrls.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+              {uploadedUrls.map((url) => (
+                <div key={url} style={{ position: "relative" }}>
+                  <img src={url} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} />
+                  <button type="button" onClick={() => removeUploaded(url)}
+                    title="Retirer"
+                    style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%",
+                      border: "none", background: "#b3261e", color: "#fff", cursor: "pointer", lineHeight: 1, fontSize: 12 }}>
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label>…ou coller des URLs d'images (une par ligne)</label>
           <textarea style={{ ...field, minHeight: 70 }} value={form.images} onChange={set("images")}
             placeholder="https://…/image1.jpg&#10;https://…/image2.jpg" />
         </div>

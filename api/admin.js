@@ -494,4 +494,69 @@ module.exports = function registerAdminRoutes(app, pool) {
       client.release();
     }
   });
+  // ================================================================== //
+  //  AJOUT — Upload d'images vers Cloudinary (via l'API, authentifié)
+  //  À insérer DANS registerAdminRoutes(app, pool), avant le "};" final.
+  //
+  //  Prérequis :
+  //    - npm install multer   (dans le dossier api/)
+  //    - cloudinary déjà installé
+  //    - variables d'env sur Railway :
+  //        CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+  //
+  //  Ces require/const peuvent être placés en haut de admin.js à côté des
+  //  autres require ; ils sont mis ici pour que le bloc soit auto-contenu.
+  // ================================================================== //
+
+  const multer = require("multer");
+  const cloudinary = require("cloudinary").v2;
+
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+
+  // Fichiers gardés en mémoire (pas d'écriture disque), limite 8 Mo, images seules
+  const uploadMem = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 8 * 1024 * 1024, files: 8 },
+    fileFilter: (_req, file, cb) => {
+      if (/^image\//.test(file.mimetype)) return cb(null, true);
+      cb(new Error("Seules les images sont acceptées."));
+    },
+  });
+
+  // Envoie un buffer vers Cloudinary et renvoie l'URL sécurisée
+  function uploadBufferToCloudinary(buffer) {
+    return new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        { folder: "piecesauto", resource_type: "image" },
+        (err, result) => (err ? reject(err) : resolve(result.secure_url))
+      );
+      stream.end(buffer);
+    });
+  }
+
+  // POST /api/admin/upload  (champ "files", multipart/form-data)
+  app.post("/api/admin/upload", requireAuth, (req, res) => {
+    uploadMem.array("files", 8)(req, res, async (mErr) => {
+      if (mErr) return res.status(400).json({ error: mErr.message });
+      if (!req.files || !req.files.length) {
+        return res.status(400).json({ error: "Aucun fichier reçu." });
+      }
+      if (!process.env.CLOUDINARY_CLOUD_NAME) {
+        return res.status(500).json({ error: "Cloudinary non configuré (variables d'env manquantes)." });
+      }
+      try {
+        const urls = [];
+        for (const f of req.files) {
+          urls.push(await uploadBufferToCloudinary(f.buffer));
+        }
+        res.json({ urls });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+  });
 };

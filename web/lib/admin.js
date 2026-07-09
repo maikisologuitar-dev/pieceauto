@@ -82,6 +82,27 @@ export async function createProduct(payload) {
   return data;
 }
 
+// Upload d'images vers l'API (multipart). On NE force PAS le Content-Type :
+// le navigateur pose lui-même le boundary. On ajoute juste le token.
+export async function uploadImages(files) {
+  const token = getToken();
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+  const res = await fetch(`${API}/api/admin/upload`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd,
+  });
+  if (res.status === 401) {
+    clearToken();
+    if (typeof window !== "undefined") window.location.href = "/admin/login";
+    throw new Error("Session expirée");
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Échec de l'upload");
+  return data.urls || [];
+}
+
 // Ouvre la facture PDF avec le token en header (via blob)
 export async function openInvoice(id) {
   const r = await authFetch(`/api/admin/orders/${id}/invoice`);
