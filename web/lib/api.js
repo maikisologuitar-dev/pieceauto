@@ -1,11 +1,19 @@
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
-export async function getProducts({ page = 1, q = "", category = "" } = {}) {
+export async function getProducts({ page = 1, q = "", category = "", brand = "", sort = "" } = {}) {
   const params = new URLSearchParams({ page: String(page), limit: "12" });
   if (q) params.set("q", q);
   if (category) params.set("category", category);
+  if (brand) params.set("brand", brand);
+  if (sort) params.set("sort", sort);
   const res = await fetch(`${API}/api/products?${params}`, { cache: "no-store" });
   if (!res.ok) throw new Error("API produits indisponible");
+  return res.json();
+}
+
+export async function getBrands() {
+  const res = await fetch(`${API}/api/brands`, { next: { revalidate: 300 } });
+  if (!res.ok) return [];
   return res.json();
 }
 

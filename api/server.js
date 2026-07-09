@@ -60,6 +60,7 @@ app.get("/api/products", async (req, res) => {
   const offset = (page - 1) * limit;
   const q = (req.query.q || "").trim();
   const category = (req.query.category || "").trim();
+  const brand = (req.query.brand || "").trim();
 
   const where = [];
   const params = [];
@@ -76,6 +77,10 @@ app.get("/api/products", async (req, res) => {
       WHERE pc.product_id = p.id AND c.slug = $${params.length}
     )`);
   }
+  if (brand) {
+    params.push(brand);
+    where.push(`p.brand = $${params.length}`);
+  }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
   try {
@@ -83,13 +88,32 @@ app.get("/api/products", async (req, res) => {
       `SELECT COUNT(*)::int AS total FROM products p ${whereSql}`, params
     );
 
+    // Tri "round-robin" par marque : on numérote chaque produit à l'intérieur de
+    // sa marque (rang 1, 2, 3…) puis on trie par ce rang. On obtient le 1er produit
+    // de chaque marque, puis le 2e de chaque marque, etc. — les marques s'alternent
+    // au lieu de former de longs blocs identiques. Sans marque = rejeté en fin.
+    // Le tri reste 100 % déterministe (stable) grâce au title puis à l'id.
+    const sort = (req.query.sort || "").trim();
+    const orderSql =
+      sort === "title"
+        ? "ORDER BY p.title ASC, p.id ASC"
+        : sort === "price"
+        ? "ORDER BY p.price_cents ASC, p.title ASC"
+        : `ORDER BY
+             ROW_NUMBER() OVER (
+               PARTITION BY COALESCE(p.brand, '~') ORDER BY p.title ASC, p.id ASC
+             ) ASC,
+             (p.brand IS NULL) ASC,
+             p.brand ASC,
+             p.title ASC`;
+
     params.push(limit, offset);
     const rows = await pool.query(
       `SELECT p.id, p.slug, p.title, p.reference, p.brand, p.price_cents, p.stock_status,
               (SELECT url FROM product_images i WHERE i.product_id = p.id ORDER BY position LIMIT 1) AS image
        FROM products p
        ${whereSql}
-       ORDER BY p.title ASC
+       ${orderSql}
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     );
@@ -168,6 +192,23 @@ app.get("/api/categories", async (_req, res) => {
        GROUP BY c.id
        HAVING COUNT(pc.product_id) > 0
        ORDER BY product_count DESC, c.name ASC`
+    );
+    res.json(r.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ------------------------------------------------------------------ //
+// Marques commerciales (avec compte de produits) pour le filtre du catalogue
+app.get("/api/brands", async (_req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT brand AS name, COUNT(*)::int AS product_count
+       FROM products
+       WHERE brand IS NOT NULL AND brand <> ''
+       GROUP BY brand
+       ORDER BY product_count DESC, brand ASC`
     );
     res.json(r.rows);
   } catch (e) {
