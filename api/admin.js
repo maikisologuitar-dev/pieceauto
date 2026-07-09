@@ -339,4 +339,159 @@ module.exports = function registerAdminRoutes(app, pool) {
       res.status(500).json({ error: e.message });
     }
   });
+  // ================================================================== //
+  //  AJOUT CHANTIER 3 — création de produit + listes pour le formulaire
+  //  À insérer DANS la fonction registerAdminRoutes(app, pool),
+  //  par exemple juste avant la ligne finale "};".
+  //  (Les helpers requireAuth et pool sont déjà disponibles dans ce scope.)
+  // ================================================================== //
+
+  // slugify stable (accents retirés, espaces -> tirets)
+  function slugifyProduct(name) {
+    return String(name || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  // Garantit un slug unique : base, base-2, base-3, …
+  async function uniqueSlug(client, base) {
+    let slug = base || "produit";
+    let n = 1;
+    // on boucle tant qu'un produit porte déjà ce slug
+    // (dans une transaction, donc lecture cohérente)
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const r = await client.query("SELECT 1 FROM products WHERE slug = $1", [slug]);
+      if (!r.rows.length) return slug;
+      n += 1;
+      slug = `${base}-${n}`;
+    }
+  }
+
+  // --- Toutes les catégories (pour le formulaire : sans filtre HAVING) ---
+  app.get("/api/admin/categories", requireAuth, async (_req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT c.id, c.name, c.slug, COUNT(pc.product_id)::int AS product_count
+         FROM categories c
+         LEFT JOIN product_categories pc ON pc.category_id = c.id
+         GROUP BY c.id
+         ORDER BY c.name ASC`
+      );
+      res.json(r.rows);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Marques existantes (suggestions pour le formulaire) ---
+  app.get("/api/admin/brands", requireAuth, async (_req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT brand AS name, COUNT(*)::int AS product_count
+         FROM products
+         WHERE brand IS NOT NULL AND brand <> ''
+         GROUP BY brand
+         ORDER BY name ASC`
+      );
+      res.json(r.rows);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Création d'un produit (titre, marque, prix, stock, catégories, images) ---
+  app.post("/api/admin/products", requireAuth, async (req, res) => {
+    const {
+      title,
+      brand,
+      reference,
+      price_eur,
+      currency,
+      stock_status,
+      short_desc,
+      long_desc,
+      category_ids,
+      images,
+    } = req.body || {};
+
+    if (!title || !String(title).trim()) {
+      return res.status(400).json({ error: "Le titre est obligatoire." });
+    }
+
+    // Prix : euros -> centimes (0 accepté = « Prix sur demande »)
+    let priceCents = 0;
+    if (price_eur !== undefined && price_eur !== null && price_eur !== "") {
+      priceCents = Math.round(Number(String(price_eur).replace(",", ".")) * 100);
+      if (Number.isNaN(priceCents) || priceCents < 0) {
+        return res.status(400).json({ error: "Prix invalide." });
+      }
+    }
+
+    const stock = ["en_stock", "rupture", "sur_commande"].includes(stock_status)
+      ? stock_status
+      : "en_stock";
+
+    const cats = Array.isArray(category_ids)
+      ? category_ids.map((x) => parseInt(x)).filter((x) => Number.isInteger(x))
+      : [];
+    const imgs = Array.isArray(images)
+      ? images.map((u) => String(u).trim()).filter(Boolean)
+      : [];
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const slug = await uniqueSlug(client, slugifyProduct(title));
+
+      const ins = await client.query(
+        `INSERT INTO products
+           (slug, title, reference, brand, price_cents, currency, short_desc, long_desc,
+            features, stock_status, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'[]'::jsonb,$9, now())
+         RETURNING id, slug`,
+        [
+          slug,
+          String(title).trim(),
+          reference ? String(reference).trim() : null,
+          brand ? String(brand).trim() : null,
+          priceCents,
+          (currency || "EUR").toUpperCase(),
+          short_desc ? String(short_desc) : null,
+          long_desc ? String(long_desc) : null,
+          stock,
+        ]
+      );
+      const productId = ins.rows[0].id;
+
+      // Images
+      for (let i = 0; i < imgs.length; i++) {
+        await client.query(
+          `INSERT INTO product_images (product_id, url, "position") VALUES ($1,$2,$3)`,
+          [productId, imgs[i], i]
+        );
+      }
+
+      // Catégories (liens idempotents)
+      for (const cid of cats) {
+        await client.query(
+          `INSERT INTO product_categories (product_id, category_id)
+           VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+          [productId, cid]
+        );
+      }
+
+      await client.query("COMMIT");
+      res.status(201).json({ id: productId, slug: ins.rows[0].slug });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      res.status(500).json({ error: e.message });
+    } finally {
+      client.release();
+    }
+  });
 };

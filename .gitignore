@@ -21,3 +21,4 @@ data/*.json
 # Logs et divers
 *.log
 .DS_Store
+piecesauto-next.zip
