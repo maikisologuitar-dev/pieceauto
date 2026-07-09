@@ -63,6 +63,25 @@ export async function updateProduct(id, patch) {
   return r.json();
 }
 
+// --- Chantier 3 : création de produit + listes pour le formulaire ---
+export async function getAdminCategories() {
+  const r = await authFetch("/api/admin/categories");
+  return r.json();
+}
+export async function getAdminBrands() {
+  const r = await authFetch("/api/admin/brands");
+  return r.json();
+}
+export async function createProduct(payload) {
+  const r = await authFetch("/api/admin/products", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || "Échec de la création du produit");
+  return data;
+}
+
 // Ouvre la facture PDF avec le token en header (via blob)
 export async function openInvoice(id) {
   const r = await authFetch(`/api/admin/orders/${id}/invoice`);
