@@ -4,6 +4,7 @@ import {
   getAdminProducts, updateProduct,
   createProduct, getAdminCategories, getAdminBrands, uploadImages,
 } from "@/lib/admin";
+import AdminProductImages from "@/components/AdminProductImages";
 
 const STOCK_LABELS = { en_stock: "En stock", rupture: "Rupture", sur_commande: "Sur commande" };
 
@@ -13,6 +14,7 @@ export default function AdminProducts() {
   const [savingId, setSavingId] = useState(null);
   const [savedId, setSavedId] = useState(null);
   const [err, setErr] = useState("");
+  const [imagesProduct, setImagesProduct] = useState(null);
 
   const load = (query = "") => getAdminProducts(query).then(setProducts).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
@@ -53,11 +55,20 @@ export default function AdminProducts() {
         <tbody>
           {products.map((p) => (
             <ProductRow key={p.id} p={p} onSave={save}
-              saving={savingId === p.id} saved={savedId === p.id} STOCK_LABELS={STOCK_LABELS} />
+              saving={savingId === p.id} saved={savedId === p.id} STOCK_LABELS={STOCK_LABELS}
+              onEditImages={() => setImagesProduct(p)} />
           ))}
         </tbody>
       </table>
       {!products.length && <p style={{ color: "var(--steel)", marginTop: 16 }}>Aucun produit.</p>}
+
+      {imagesProduct && (
+        <AdminProductImages
+          product={imagesProduct}
+          onClose={() => setImagesProduct(null)}
+          onSaved={() => load(q)}
+        />
+      )}
     </>
   );
 }
@@ -261,7 +272,7 @@ function NewProductForm({ onCreated }) {
   );
 }
 
-function ProductRow({ p, onSave, saving, saved, STOCK_LABELS }) {
+function ProductRow({ p, onSave, saving, saved, STOCK_LABELS, onEditImages }) {
   const [price, setPrice] = useState((p.price_cents / 100).toFixed(2));
   const [stock, setStock] = useState(p.stock_status);
 
@@ -278,10 +289,15 @@ function ProductRow({ p, onSave, saving, saved, STOCK_LABELS }) {
         </select>
       </td>
       <td>
-        <button className="admin-btn primary" disabled={saving}
-          onClick={() => onSave(p, { price_eur: price, stock_status: stock })}>
-          {saving ? "…" : saved ? "✓" : "Enregistrer"}
-        </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="admin-btn primary" disabled={saving}
+            onClick={() => onSave(p, { price_eur: price, stock_status: stock })}>
+            {saving ? "…" : saved ? "✓" : "Enregistrer"}
+          </button>
+          <button className="admin-btn" type="button" onClick={onEditImages}>
+            Images
+          </button>
+        </div>
       </td>
     </tr>
   );

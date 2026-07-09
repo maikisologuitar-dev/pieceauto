@@ -103,6 +103,22 @@ export async function uploadImages(files) {
   return data.urls || [];
 }
 
+// Images d'un produit existant : lecture + remplacement complet
+export async function getProductImages(id) {
+  const r = await authFetch(`/api/admin/products/${id}/images`);
+  const data = await r.json();
+  return data.images || [];
+}
+export async function replaceProductImages(id, images) {
+  const r = await authFetch(`/api/admin/products/${id}/images`, {
+    method: "PUT",
+    body: JSON.stringify({ images }),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || "Échec de la mise à jour des images");
+  return data;
+}
+
 // Ouvre la facture PDF avec le token en header (via blob)
 export async function openInvoice(id) {
   const r = await authFetch(`/api/admin/orders/${id}/invoice`);

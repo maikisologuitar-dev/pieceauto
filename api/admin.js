@@ -559,4 +559,62 @@ module.exports = function registerAdminRoutes(app, pool) {
       }
     });
   });
+  // ================================================================== //
+  //  AJOUT — Gestion des images d'un produit existant
+  //  À insérer DANS registerAdminRoutes(app, pool), avant le "};" final.
+  // ================================================================== //
+
+  // --- Lire les images actuelles d'un produit ---
+  app.get("/api/admin/products/:id/images", requireAuth, async (req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT url FROM product_images WHERE product_id = $1 ORDER BY "position", id`,
+        [req.params.id]
+      );
+      res.json({ images: r.rows.map((x) => x.url) });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Remplacer TOUTES les images d'un produit ---
+  // Body : { images: ["https://…", …] }  (l'ordre est conservé)
+  app.put("/api/admin/products/:id/images", requireAuth, async (req, res) => {
+    const { images } = req.body || {};
+    if (!Array.isArray(images)) {
+      return res.status(400).json({ error: "Le champ 'images' doit être un tableau." });
+    }
+    const urls = images.map((u) => String(u).trim()).filter(Boolean);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // le produit existe-t-il ?
+      const p = await client.query("SELECT id FROM products WHERE id = $1", [req.params.id]);
+      if (!p.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Produit introuvable" });
+      }
+
+      // on repart de zéro puis on réinsère dans l'ordre
+      await client.query("DELETE FROM product_images WHERE product_id = $1", [req.params.id]);
+      for (let i = 0; i < urls.length; i++) {
+        await client.query(
+          `INSERT INTO product_images (product_id, url, "position") VALUES ($1, $2, $3)`,
+          [req.params.id, urls[i], i]
+        );
+      }
+      // garder products.updated_at cohérent
+      await client.query("UPDATE products SET updated_at = now() WHERE id = $1", [req.params.id]);
+
+      await client.query("COMMIT");
+      res.json({ id: Number(req.params.id), images: urls });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      res.status(500).json({ error: e.message });
+    } finally {
+      client.release();
+    }
+  });
 };
