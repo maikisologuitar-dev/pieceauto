@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
   getAdminProducts, updateProduct,
   createProduct, getAdminCategories, getAdminBrands, uploadImages,
+  deleteProduct,
 } from "@/lib/admin";
 import AdminProductImages from "@/components/AdminProductImages";
 
@@ -34,6 +35,15 @@ export default function AdminProducts() {
     setSavingId(null);
   };
 
+  const remove = async (p) => {
+    if (!window.confirm(`Supprimer définitivement « ${p.title} » ?\nCette action est irréversible.`)) return;
+    setErr("");
+    try {
+      await deleteProduct(p.id);
+      setProducts((prev) => prev.filter((x) => x.id !== p.id));
+    } catch (e) { setErr(e.message); }
+  };
+
   return (
     <>
       <h1 className="admin-h1">Produits</h1>
@@ -56,7 +66,7 @@ export default function AdminProducts() {
           {products.map((p) => (
             <ProductRow key={p.id} p={p} onSave={save}
               saving={savingId === p.id} saved={savedId === p.id} STOCK_LABELS={STOCK_LABELS}
-              onEditImages={() => setImagesProduct(p)} />
+              onEditImages={() => setImagesProduct(p)} onDelete={() => remove(p)} />
           ))}
         </tbody>
       </table>
@@ -272,7 +282,7 @@ function NewProductForm({ onCreated }) {
   );
 }
 
-function ProductRow({ p, onSave, saving, saved, STOCK_LABELS, onEditImages }) {
+function ProductRow({ p, onSave, saving, saved, STOCK_LABELS, onEditImages, onDelete }) {
   const [price, setPrice] = useState((p.price_cents / 100).toFixed(2));
   const [stock, setStock] = useState(p.stock_status);
 
@@ -296,6 +306,10 @@ function ProductRow({ p, onSave, saving, saved, STOCK_LABELS, onEditImages }) {
           </button>
           <button className="admin-btn" type="button" onClick={onEditImages}>
             Images
+          </button>
+          <button className="admin-btn" type="button" onClick={onDelete}
+            style={{ color: "#b3261e", borderColor: "#b3261e" }}>
+            Supprimer
           </button>
         </div>
       </td>

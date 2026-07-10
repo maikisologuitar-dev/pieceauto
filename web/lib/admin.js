@@ -62,6 +62,12 @@ export async function updateProduct(id, patch) {
   const r = await authFetch(`/api/admin/products/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
   return r.json();
 }
+export async function deleteProduct(id) {
+  const r = await authFetch(`/api/admin/products/${id}`, { method: "DELETE" });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || "Échec de la suppression");
+  return data;
+}
 
 // --- Chantier 3 : création de produit + listes pour le formulaire ---
 export async function getAdminCategories() {

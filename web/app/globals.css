@@ -628,3 +628,120 @@ button { font-family: inherit; cursor: pointer; }
   color: rgba(255,255,255,.85);
   font-size: 11px;
 }
+/* ------------------------------------------------------------------ *
+ *  Menu de rayons par famille dans le header (à ajouter à globals.css)
+ * ------------------------------------------------------------------ */
+
+/* Famille = conteneur du bouton + menu déroulant */
+.nav-families {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.family {
+  position: relative;
+}
+.family-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+}
+.family-btn:hover { background: rgba(0, 0, 0, 0.05); }
+.family-btn .caret { font-size: 10px; opacity: 0.7; }
+
+/* Menu déroulant (desktop) */
+.family-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 240px;
+  background: #fff;
+  border: 1px solid var(--line, #e2e6ea);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(20, 23, 28, 0.14);
+  padding: 6px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+}
+.family-menu a {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: var(--ink, #16202c);
+  text-decoration: none;
+  font-size: 14px;
+}
+.family-menu a:hover { background: rgba(0, 0, 0, 0.05); }
+.family-count {
+  font-size: 11px;
+  color: var(--steel, #7a828c);
+  background: var(--line, #eef1f4);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+/* Bouton hamburger : caché en desktop, visible en mobile */
+.burger {
+  display: none;
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: inherit;
+  padding: 4px 8px;
+}
+
+/* Panneau mobile */
+.mobile-menu { display: none; }
+
+@media (max-width: 860px) {
+  /* on masque les familles desktop, on montre le hamburger */
+  .nav-families { display: none; }
+  .burger { display: inline-block; }
+
+  .mobile-menu {
+    display: block;
+    border-top: 1px solid var(--line, #e2e6ea);
+    background: #fff;
+    padding: 8px 16px 16px;
+  }
+  .mobile-family { border-bottom: 1px solid var(--line, #eef1f4); }
+  .mobile-family summary {
+    cursor: pointer;
+    padding: 12px 4px;
+    font-weight: 600;
+    list-style: none;
+  }
+  .mobile-family summary::-webkit-details-marker { display: none; }
+  .mobile-family summary::after { content: " ▾"; opacity: 0.6; }
+  .mobile-family[open] summary::after { content: " ▴"; }
+  .mobile-family-items {
+    display: flex;
+    flex-direction: column;
+    padding: 0 0 10px 12px;
+  }
+  .mobile-family-items a {
+    padding: 8px 4px;
+    color: var(--ink, #16202c);
+    text-decoration: none;
+    font-size: 14px;
+  }
+  .mobile-link {
+    display: block;
+    padding: 14px 4px 4px;
+    font-weight: 700;
+    color: var(--accent-dark, #b3261e);
+    text-decoration: none;
+  }
+}

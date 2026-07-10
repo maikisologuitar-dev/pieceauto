@@ -702,4 +702,22 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
+
+  // --- Suppression d'un produit ---
+  // Les images et liens catégories partent en cascade (FK ON DELETE CASCADE).
+  // Les lignes de commande existantes gardent leur copie (FK ON DELETE SET NULL),
+  // donc l'historique et les factures restent intacts.
+  app.delete("/api/admin/products/:id", requireAuth, async (req, res) => {
+    try {
+      const r = await pool.query(
+        "DELETE FROM products WHERE id = $1 RETURNING id",
+        [req.params.id]
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "Produit introuvable" });
+      res.json({ id: r.rows[0].id, deleted: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
 };
