@@ -14,6 +14,7 @@ export default async function ProductPage({ params }) {
 
   const price = formatPrice(product.price_cents);
   const features = Array.isArray(product.features) ? product.features : [];
+  const orderable = product.price_cents > 0 && product.stock_status !== "rupture";
 
   return (
     <section className="section">
@@ -73,12 +74,22 @@ export default async function ProductPage({ params }) {
               </ul>
             )}
 
-            <AddToCartButton product={product} />
+            {orderable ? (
+              <AddToCartButton product={product} />
+            ) : product.stock_status === "rupture" ? (
+              <p style={{ fontWeight: 600, color: "var(--accent-dark, #b3261e)", margin: "8px 0" }}>
+                Produit momentanément en rupture de stock.
+              </p>
+            ) : (
+              <p style={{ fontWeight: 600, color: "var(--steel)", margin: "8px 0" }}>
+                Contactez-nous pour connaître le prix et la disponibilité.
+              </p>
+            )}
 
             <div className="notice">
-              Règlement <strong>hors ligne</strong> : après votre commande, nous vous
-              transmettons la facture par email. Paiement par virement bancaire,
-              chèque, à la livraison ou espèces au retrait.
+              Règlement par <strong>virement bancaire</strong> : après votre commande,
+              nous vous transmettons la facture avec le RIB. La livraison intervient
+              une fois le virement reçu.
             </div>
           </div>
         </div>

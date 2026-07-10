@@ -119,6 +119,22 @@ export async function replaceProductImages(id, images) {
   return data;
 }
 
+// Catégories d'un produit existant : lecture + remplacement complet
+export async function getProductCategories(id) {
+  const r = await authFetch(`/api/admin/products/${id}/categories`);
+  const data = await r.json();
+  return data.category_ids || [];
+}
+export async function replaceProductCategories(id, categoryIds) {
+  const r = await authFetch(`/api/admin/products/${id}/categories`, {
+    method: "PUT",
+    body: JSON.stringify({ category_ids: categoryIds }),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || "Échec de la mise à jour des catégories");
+  return data;
+}
+
 // Ouvre la facture PDF avec le token en header (via blob)
 export async function openInvoice(id) {
   const r = await authFetch(`/api/admin/orders/${id}/invoice`);

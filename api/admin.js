@@ -307,7 +307,7 @@ module.exports = function registerAdminRoutes(app, pool) {
 
   // --- Modifier un produit (prix / stock / textes) ---
   app.patch("/api/admin/products/:id", requireAuth, async (req, res) => {
-    const { price_eur, stock_status, title, short_desc, long_desc } = req.body || {};
+    const { price_eur, stock_status, title, short_desc, long_desc, brand } = req.body || {};
     const sets = [];
     const params = [];
     let i = 1;
@@ -323,6 +323,7 @@ module.exports = function registerAdminRoutes(app, pool) {
     if (title) { sets.push(`title = $${i++}`); params.push(title); }
     if (short_desc !== undefined) { sets.push(`short_desc = $${i++}`); params.push(short_desc); }
     if (long_desc !== undefined) { sets.push(`long_desc = $${i++}`); params.push(long_desc); }
+    if (brand !== undefined) { sets.push(`brand = $${i++}`); params.push(brand ? String(brand).trim() : null); }
 
     if (!sets.length) return res.status(400).json({ error: "Rien à modifier" });
     sets.push(`updated_at = now()`);
@@ -617,4 +618,70 @@ module.exports = function registerAdminRoutes(app, pool) {
       client.release();
     }
   });
+
+  // ================================================================== //
+  //  AJOUT — Catégories d'un produit existant (lecture + remplacement)
+  //  À insérer DANS registerAdminRoutes(app, pool), avant le "};" final.
+  // ================================================================== //
+
+  // --- Lire les catégories d'un produit ---
+  app.get("/api/admin/products/:id/categories", requireAuth, async (req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT c.id, c.name
+         FROM categories c
+         JOIN product_categories pc ON pc.category_id = c.id
+         WHERE pc.product_id = $1
+         ORDER BY c.name`,
+        [req.params.id]
+      );
+      res.json({ category_ids: r.rows.map((x) => x.id), categories: r.rows });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Remplacer TOUTES les catégories d'un produit ---
+  // Body : { category_ids: [1, 4, 9] }
+  app.put("/api/admin/products/:id/categories", requireAuth, async (req, res) => {
+    const { category_ids } = req.body || {};
+    if (!Array.isArray(category_ids)) {
+      return res.status(400).json({ error: "Le champ 'category_ids' doit être un tableau." });
+    }
+    const ids = category_ids
+      .map((x) => parseInt(x))
+      .filter((x) => Number.isInteger(x));
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const p = await client.query("SELECT id FROM products WHERE id = $1", [req.params.id]);
+      if (!p.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Produit introuvable" });
+      }
+
+      await client.query("DELETE FROM product_categories WHERE product_id = $1", [req.params.id]);
+      for (const cid of ids) {
+        await client.query(
+          `INSERT INTO product_categories (product_id, category_id)
+           VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [req.params.id, cid]
+        );
+      }
+
+      await client.query("COMMIT");
+      res.json({ id: Number(req.params.id), category_ids: ids });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      res.status(500).json({ error: e.message });
+    } finally {
+      client.release();
+    }
+  });
+
+  // ================================================================== //
+  // fin routes catégories
+
 };
