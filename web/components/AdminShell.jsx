@@ -28,6 +28,7 @@ export default function AdminShell({ children }) {
           <Link href="/admin">Tableau de bord</Link>
           <Link href="/admin/commandes">Commandes</Link>
           <Link href="/admin/produits">Produits</Link>
+          <Link href="/admin/rayons">Rayons</Link>
         </nav>
         <div className="spacer" />
         <Link href="/" style={{ fontSize: 13, opacity: 0.8 }}>Voir la boutique ↗</Link>
