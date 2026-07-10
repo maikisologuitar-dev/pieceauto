@@ -376,7 +376,7 @@ module.exports = function registerAdminRoutes(app, pool) {
   app.get("/api/admin/categories", requireAuth, async (_req, res) => {
     try {
       const r = await pool.query(
-        `SELECT c.id, c.name, c.slug, COUNT(pc.product_id)::int AS product_count
+        `SELECT c.id, c.name, c.slug, c.image_url, COUNT(pc.product_id)::int AS product_count
          FROM categories c
          LEFT JOIN product_categories pc ON pc.category_id = c.id
          GROUP BY c.id
@@ -683,5 +683,23 @@ module.exports = function registerAdminRoutes(app, pool) {
 
   // ================================================================== //
   // fin routes catégories
+
+
+  // --- Mise à jour de l'image d'ambiance d'un rayon ---
+  // Body : { image_url: "https://…" | null }
+  app.patch("/api/admin/categories/:id", requireAuth, async (req, res) => {
+    const { image_url } = req.body || {};
+    try {
+      const r = await pool.query(
+        `UPDATE categories SET image_url = $1 WHERE id = $2
+         RETURNING id, name, slug, image_url`,
+        [image_url ? String(image_url).trim() : null, req.params.id]
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "Rayon introuvable" });
+      res.json(r.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
 };

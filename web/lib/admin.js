@@ -135,6 +135,17 @@ export async function replaceProductCategories(id, categoryIds) {
   return data;
 }
 
+// Image d'ambiance d'un rayon (catégorie)
+export async function updateCategoryImage(id, imageUrl) {
+  const r = await authFetch(`/api/admin/categories/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ image_url: imageUrl }),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || "Échec de la mise à jour du rayon");
+  return data;
+}
+
 // Ouvre la facture PDF avec le token en header (via blob)
 export async function openInvoice(id) {
   const r = await authFetch(`/api/admin/orders/${id}/invoice`);

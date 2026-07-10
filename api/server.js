@@ -160,13 +160,16 @@ app.get("/api/categories/featured", async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT c.id, c.name, c.slug, COUNT(pc.product_id)::int AS product_count,
-              (
-                SELECT i.url
-                FROM product_categories pc2
-                JOIN product_images i ON i.product_id = pc2.product_id
-                WHERE pc2.category_id = c.id
-                ORDER BY i.position
-                LIMIT 1
+              COALESCE(
+                c.image_url,
+                (
+                  SELECT i.url
+                  FROM product_categories pc2
+                  JOIN product_images i ON i.product_id = pc2.product_id
+                  WHERE pc2.category_id = c.id
+                  ORDER BY i.position
+                  LIMIT 1
+                )
               ) AS image
        FROM categories c
        JOIN product_categories pc ON pc.category_id = c.id
@@ -217,9 +220,10 @@ app.get("/api/brands", async (_req, res) => {
 });
 
 // ------------------------------------------------------------------ //
-// Création de commande (règlement hors-ligne : virement, chèque,
-// à la livraison, espèces — la facture est envoyée manuellement)
-const PAYMENT_METHODS = ["virement", "cheque", "livraison", "especes"];
+// Création de commande (règlement par virement bancaire uniquement :
+// le client effectue le virement avant livraison, la facture/RIB lui est
+// transmise par l'administrateur après enregistrement de la commande)
+const PAYMENT_METHODS = ["virement"];
 
 app.post("/api/orders", async (req, res) => {
   const { customer, payment_method, items, note } = req.body || {};
