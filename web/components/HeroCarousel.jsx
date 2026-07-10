@@ -10,6 +10,10 @@ import Link from "next/link";
  */
 const IMG_PIECES =
   "https://res.cloudinary.com/jewjfeup/image/upload/v1783677205/4dd121ab1880c8db81e4b7546e1cc2a9_htvmsn.jpg";
+const IMG_PROMO =
+  "https://res.cloudinary.com/jewjfeup/image/upload/v1783678260/Where_to_find_cheap_car_parts_online_for_every_4_xvziyz.jpg";
+const IMG_SERVICE =
+  "https://res.cloudinary.com/jewjfeup/image/upload/v1783678259/191191946666421717_ovcu84.jpg";
 
 const SLIDES = [
   {
@@ -28,6 +32,7 @@ const SLIDES = [
     text: "d'économie sur une sélection de produits.",
     cta: "En profiter",
     href: "/produits",
+    image: IMG_PROMO,
     bg: "linear-gradient(120deg, #14171c 0%, #2b1a10 55%, #c8410a 140%)",
   },
   {
@@ -36,6 +41,7 @@ const SLIDES = [
     text: "Règlement par virement, livraison soignée, pièces d'origine et garanties.",
     cta: "Parcourir le catalogue",
     href: "/produits",
+    image: IMG_SERVICE,
     bg: "linear-gradient(120deg, #14171c 0%, #23303a 100%)",
   },
 ];

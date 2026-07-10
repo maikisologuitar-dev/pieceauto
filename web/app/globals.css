@@ -813,3 +813,71 @@ button { font-family: inherit; cursor: pointer; }
   color: #e6e9ee;
   max-width: 420px;
 }
+/* ------------------------------------------------------------------ *
+ *  Ajouts carrousel : image de fond de slide + slide promo (chiffre animé)
+ *  À coller à la fin de web/app/globals.css
+ * ------------------------------------------------------------------ */
+
+/* Image de fond d'une slide (ex. les pièces sur fond blanc).
+   On la place à droite et on assombrit le côté gauche pour la lisibilité du texte. */
+.hc-slide-img {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center right;
+  z-index: 0;
+}
+/* voile dégradé : sombre à gauche (texte), transparent à droite (image) */
+.hc-slide-img::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(10,13,18,.92) 0%, rgba(10,13,18,.72) 42%, rgba(10,13,18,.25) 100%);
+}
+/* le contenu passe au-dessus de l'image */
+.hc-slide .hc-inner { position: relative; z-index: 1; }
+
+@media (max-width: 640px) {
+  /* sur mobile, on assombrit davantage pour garder le texte lisible */
+  .hc-slide-img::after {
+    background: linear-gradient(90deg, rgba(10,13,18,.9) 0%, rgba(10,13,18,.75) 100%);
+    background-position: center;
+  }
+}
+
+/* --- Slide promo : grand chiffre animé --- */
+.hc-promo-figure {
+  display: flex;
+  align-items: flex-start;
+  line-height: 1;
+  color: #fff;
+  margin: 6px 0 6px;
+}
+.hc-promo-minus {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(48px, 8vw, 96px);
+  color: var(--accent, #e8590c);
+  margin-right: 4px;
+}
+.hc-promo-num {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(90px, 17vw, 200px);
+  color: var(--accent, #e8590c);
+  letter-spacing: -2px;
+  font-variant-numeric: tabular-nums; /* évite le "saut" de largeur des chiffres */
+}
+.hc-promo-pct {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(40px, 7vw, 84px);
+  color: #fff;
+  margin-top: clamp(8px, 2vw, 24px);
+  margin-left: 4px;
+}
+.hc-slide-promo .hc-text {
+  font-size: clamp(15px, 2vw, 19px);
+  color: #e6e9ee;
+  max-width: 420px;
+}
