@@ -4,38 +4,75 @@ import Link from "next/link";
 
 /**
  * HeroCarousel — carrousel plein largeur auto-rotatif.
- * Slides configurables (titre, sous-titre, CTA, couleur d'accent).
  * Auto-défilement (pause au survol / focus), flèches, points cliquables,
- * clavier (← →), et respect de prefers-reduced-motion.
+ * clavier (← →), respect de prefers-reduced-motion.
+ * Prend en charge une image de fond (image) et une slide promo à compteur animé.
  */
+const IMG_PIECES =
+  "https://res.cloudinary.com/jewjfeup/image/upload/v1783677205/4dd121ab1880c8db81e4b7546e1cc2a9_htvmsn.jpg";
+
 const SLIDES = [
   {
-    eyebrow: "Entretien & nettoyage",
-    title: "Préparez votre véhicule\npour chaque saison",
-    text: "Huiles, additifs, produits d'entretien : tout pour rouler l'esprit tranquille.",
-    cta: "Voir le rayon entretien",
-    href: "/produits?category=entretien-nettoyage",
-    bg: "linear-gradient(120deg, #14171c 0%, #1e232b 55%, #2b323d 100%)",
+    eyebrow: "Pièces & équipements",
+    title: "Toutes vos pièces auto,\nau meilleur prix",
+    text: "Freinage, moteur, éclairage, accessoires : un large choix livré rapidement.",
+    cta: "Voir le catalogue",
+    href: "/produits",
+    image: IMG_PIECES,
+    bg: "#0e1116",
   },
   {
-    eyebrow: "Outillage d'atelier",
-    title: "L'équipement pro,\nà portée de main",
-    text: "Servantes, coffrets de douilles, crics et boosters pour travailler comme au garage.",
-    cta: "Découvrir l'outillage",
-    href: "/produits?category=outillage",
-    bg: "linear-gradient(120deg, #1a1d23 0%, #262b34 60%, #3a2417 100%)",
-  },
-  {
+    type: "promo",
     eyebrow: "Offre du moment",
-    title: "Les meilleurs prix,\ntoute l'année",
-    text: "Un large choix de pièces et d'accessoires, livrés rapidement, réglés simplement.",
+    percent: 43,
+    text: "d'économie sur une sélection de produits.",
+    cta: "En profiter",
+    href: "/produits",
+    bg: "linear-gradient(120deg, #14171c 0%, #2b1a10 55%, #c8410a 140%)",
+  },
+  {
+    eyebrow: "Le service PiècesAuto",
+    title: "Simple, rapide,\nde confiance",
+    text: "Règlement par virement, livraison soignée, pièces d'origine et garanties.",
     cta: "Parcourir le catalogue",
     href: "/produits",
     bg: "linear-gradient(120deg, #14171c 0%, #23303a 100%)",
   },
 ];
 
-const INTERVAL = 5500;
+const INTERVAL = 4500;
+
+/* Compteur animé 0 -> target, déclenché quand la slide promo devient active */
+function AnimatedPercent({ active, target = 43 }) {
+  const [val, setVal] = useState(0);
+  const raf = useRef(null);
+
+  useEffect(() => {
+    if (!active) { setVal(0); return; }
+    const reduce = typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) { setVal(target); return; }
+
+    const duration = 1200;
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      setVal(Math.round(eased * target));
+      if (t < 1) raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf.current);
+  }, [active, target]);
+
+  return (
+    <div className="hc-promo-figure" aria-hidden="true">
+      <span className="hc-promo-minus">−</span>
+      <span className="hc-promo-num">{val}</span>
+      <span className="hc-promo-pct">%</span>
+    </div>
+  );
+}
 
 export default function HeroCarousel() {
   const [index, setIndex] = useState(0);
@@ -75,14 +112,31 @@ export default function HeroCarousel() {
       {SLIDES.map((s, i) => (
         <div
           key={i}
-          className={`hc-slide ${i === index ? "active" : ""}`}
+          className={`hc-slide ${i === index ? "active" : ""} ${s.type === "promo" ? "hc-slide-promo" : ""}`}
           style={{ background: s.bg }}
           aria-hidden={i !== index}
         >
+          {s.image && (
+            <div className="hc-slide-img" style={{ backgroundImage: `url(${s.image})` }} />
+          )}
+
           <div className="hc-inner">
             <span className="hc-eyebrow">{s.eyebrow}</span>
-            <h2 className="hc-title">{s.title.split("\n").map((l, k) => <span key={k}>{l}<br /></span>)}</h2>
-            <p className="hc-text">{s.text}</p>
+
+            {s.type === "promo" ? (
+              <>
+                <AnimatedPercent active={i === index} target={s.percent} />
+                <p className="hc-text">{s.text}</p>
+              </>
+            ) : (
+              <>
+                <h2 className="hc-title">
+                  {s.title.split("\n").map((l, k) => <span key={k}>{l}<br /></span>)}
+                </h2>
+                <p className="hc-text">{s.text}</p>
+              </>
+            )}
+
             <Link href={s.href} className="hc-cta" tabIndex={i === index ? 0 : -1}>{s.cta}</Link>
           </div>
         </div>
