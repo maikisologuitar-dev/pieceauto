@@ -881,3 +881,29 @@ button { font-family: inherit; cursor: pointer; }
   color: #e6e9ee;
   max-width: 420px;
 }
+/* ------------------------------------------------------------------ *
+ *  Hiérarchie catégories — lien "Tout {famille}" en tête de menu
+ *  À coller à la fin de web/app/globals.css
+ * ------------------------------------------------------------------ */
+.family-menu .family-all {
+  font-weight: 700;
+  color: var(--accent);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  padding-bottom: 10px;
+}
+.family-menu .family-all:hover {
+  background: var(--card-2, rgba(255,255,255,.05));
+}
+
+/* optgroup du filtre catalogue */
+.toolbar select optgroup {
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--card);
+}
+.toolbar select option {
+  font-weight: 400;
+  color: var(--text, inherit);
+  background: var(--card);
+}

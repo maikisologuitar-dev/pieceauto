@@ -4,67 +4,25 @@ import Link from "next/link";
 import { useCart } from "./CartProvider";
 import { getCategories } from "@/lib/api";
 
-// Regroupement des rayons en 3 familles (par nom de catégorie).
-// Tout rayon non listé ici retombe automatiquement dans "Accessoires".
-const FAMILIES = [
-  {
-    key: "exterieur",
-    label: "Entretien extérieur",
-    rayons: [
-      "Shampoings & Mousses", "Nettoyants jantes", "Pneus (nettoyant & dressing)",
-      "Cires & Protections", "Polish & Lustrage", "Quick Detailers",
-      "Insectes", "Dégivrants & Antigel", "Préparation & Décontamination",
-    ],
-  },
-  {
-    key: "interieur",
-    label: "Entretien intérieur",
-    rayons: [
-      "Cuir & Alcantara", "Textiles & Tapis", "Plastiques & Dressing",
-      "Cockpit & Tableau de bord", "Nettoyants vitres",
-      "Parfums & Désodorisants", "Multi-usages (APC)",
-    ],
-  },
-  {
-    key: "accessoires",
-    label: "Accessoires",
-    rayons: [
-      "Microfibres & Applicateurs", "Seaux & Matériel de lavage",
-      "Outillage & Divers", "Kits & Coffrets",
-    ],
-  },
-];
-
-function buildFamilies(categories) {
-  const byName = new Map(categories.map((c) => [c.name, c]));
-  const used = new Set();
-  const result = FAMILIES.map((fam) => {
-    const items = [];
-    for (const name of fam.rayons) {
-      const c = byName.get(name);
-      if (c) { items.push(c); used.add(name); }
-    }
-    return { ...fam, items };
-  });
-  // rayons non mappés -> dans Accessoires
-  const extras = categories.filter((c) => !used.has(c.name));
-  if (extras.length) {
-    const acc = result.find((f) => f.key === "accessoires");
-    acc.items.push(...extras);
-  }
-  return result.filter((f) => f.items.length > 0);
-}
-
+/**
+ * Header — menus déroulants alimentés par la hiérarchie réelle des catégories.
+ * L'API /api/categories renvoie les familles (parent_id NULL) avec leurs rayons
+ * dans `children`. Aucun mapping en dur : le menu suit la base.
+ */
 export default function Header() {
   const cart = useCart();
   const [families, setFamilies] = useState([]);
-  const [openKey, setOpenKey] = useState(null);   // desktop : famille survolée/ouverte
+  const [openKey, setOpenKey] = useState(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeTimer = useRef(null);
 
   useEffect(() => {
     getCategories()
-      .then((cats) => setFamilies(buildFamilies(cats || [])))
+      .then((data) => {
+        // on ne garde que les familles ayant au moins un rayon
+        const fams = (data || []).filter((f) => Array.isArray(f.children) && f.children.length > 0);
+        setFamilies(fams);
+      })
       .catch(() => {});
   }, []);
 
@@ -82,25 +40,38 @@ export default function Header() {
       <div className="container">
         <Link href="/" className="logo">Pièces<span>Auto</span></Link>
 
-        {/* Menu familles (desktop) */}
+        {/* Familles (desktop) */}
         <nav className="nav nav-families">
           {families.map((fam) => (
             <div
-              key={fam.key}
+              key={fam.slug}
               className="family"
-              onMouseEnter={() => openMenu(fam.key)}
+              onMouseEnter={() => openMenu(fam.slug)}
               onMouseLeave={scheduleClose}
             >
               <button
                 className="family-btn"
-                aria-expanded={openKey === fam.key}
-                onClick={() => setOpenKey(openKey === fam.key ? null : fam.key)}
+                aria-expanded={openKey === fam.slug}
+                onClick={() => setOpenKey(openKey === fam.slug ? null : fam.slug)}
               >
-                {fam.label} <span className="caret">▾</span>
+                {fam.name} <span className="caret">▾</span>
               </button>
-              {openKey === fam.key && (
-                <div className="family-menu" onMouseEnter={() => openMenu(fam.key)} onMouseLeave={scheduleClose}>
-                  {fam.items.map((c) => (
+
+              {openKey === fam.slug && (
+                <div className="family-menu" onMouseEnter={() => openMenu(fam.slug)} onMouseLeave={scheduleClose}>
+                  {/* Lien "tout voir" : la famille inclut les produits de ses rayons */}
+                  <Link
+                    href={`/produits?category=${fam.slug}`}
+                    className="family-all"
+                    onClick={() => setOpenKey(null)}
+                  >
+                    Tout {fam.name.toLowerCase()}
+                    {typeof fam.product_count === "number" && (
+                      <span className="family-count">{fam.product_count}</span>
+                    )}
+                  </Link>
+
+                  {fam.children.map((c) => (
                     <Link key={c.slug} href={`/produits?category=${c.slug}`} onClick={() => setOpenKey(null)}>
                       {c.name}
                       {typeof c.product_count === "number" && (
@@ -119,19 +90,21 @@ export default function Header() {
           <Link href="/panier" className="cart-link">
             Panier{cart?.count ? ` (${cart.count})` : ""}
           </Link>
-          {/* Bouton menu mobile */}
           <button className="burger" aria-label="Menu" onClick={() => setMobileOpen((v) => !v)}>☰</button>
         </nav>
       </div>
 
-      {/* Panneau mobile : familles repliables */}
+      {/* Panneau mobile */}
       {mobileOpen && (
         <div className="mobile-menu">
           {families.map((fam) => (
-            <details key={fam.key} className="mobile-family">
-              <summary>{fam.label}</summary>
+            <details key={fam.slug} className="mobile-family">
+              <summary>{fam.name}</summary>
               <div className="mobile-family-items">
-                {fam.items.map((c) => (
+                <Link href={`/produits?category=${fam.slug}`} onClick={() => setMobileOpen(false)}>
+                  Tout {fam.name.toLowerCase()}
+                </Link>
+                {fam.children.map((c) => (
                   <Link key={c.slug} href={`/produits?category=${c.slug}`} onClick={() => setMobileOpen(false)}>
                     {c.name}
                   </Link>

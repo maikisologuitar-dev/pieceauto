@@ -24,8 +24,16 @@ export async function getProduct(slug) {
   return res.json();
 }
 
+// Hiérarchie : renvoie les familles avec leurs rayons (children)
 export async function getCategories() {
   const res = await fetch(`${API}/api/categories`, { next: { revalidate: 300 } });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// Liste à plat (familles + rayons mélangés), si besoin
+export async function getCategoriesFlat() {
+  const res = await fetch(`${API}/api/categories?flat=1`, { next: { revalidate: 300 } });
   if (!res.ok) return [];
   return res.json();
 }

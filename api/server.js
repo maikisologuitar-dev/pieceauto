@@ -71,10 +71,19 @@ app.get("/api/products", async (req, res) => {
   }
   if (category) {
     params.push(category);
+    // Filtre hiérarchique : si `category` est une FAMILLE, on inclut aussi les
+    // produits de tous ses rayons enfants. Si c'est un rayon, seul lui compte.
     where.push(`EXISTS (
       SELECT 1 FROM product_categories pc
-      JOIN categories c ON c.id = pc.category_id
-      WHERE pc.product_id = p.id AND c.slug = $${params.length}
+      WHERE pc.product_id = p.id
+        AND pc.category_id IN (
+          WITH RECURSIVE tree AS (
+            SELECT id FROM categories WHERE slug = $${params.length}
+            UNION ALL
+            SELECT c.id FROM categories c JOIN tree t ON c.parent_id = t.id
+          )
+          SELECT id FROM tree
+        )
     )`);
   }
   if (brand) {
@@ -154,28 +163,43 @@ app.get("/api/products/:slug", async (req, res) => {
 });
 
 // ------------------------------------------------------------------ //
-// Catégories avec une image représentative (pour les tuiles de l'accueil)
+// Catégories mises en avant sur l'accueil : les FAMILLES (niveau 1), avec
+// leur image d'ambiance (ou à défaut une photo d'un produit de la famille)
+// et le nombre total de produits (rayons enfants inclus).
 app.get("/api/categories/featured", async (req, res) => {
-  const limit = Math.min(12, Math.max(1, parseInt(req.query.limit) || 10));
+  const limit = Math.min(20, Math.max(1, parseInt(req.query.limit) || 12));
   try {
     const r = await pool.query(
-      `SELECT c.id, c.name, c.slug, COUNT(pc.product_id)::int AS product_count,
+      `WITH fam AS (
+         SELECT c.id, c.name, c.slug, c.image_url
+         FROM categories c
+         WHERE c.parent_id IS NULL
+       ),
+       -- tous les descendants de chaque famille (elle-même incluse)
+       scope AS (
+         SELECT f.id AS family_id, f.id AS cat_id FROM fam f
+         UNION ALL
+         SELECT f.id, ch.id FROM fam f JOIN categories ch ON ch.parent_id = f.id
+       )
+       SELECT f.id, f.name, f.slug,
+              COALESCE(COUNT(pc.product_id), 0)::int AS product_count,
               COALESCE(
-                c.image_url,
+                f.image_url,
                 (
                   SELECT i.url
-                  FROM product_categories pc2
+                  FROM scope s2
+                  JOIN product_categories pc2 ON pc2.category_id = s2.cat_id
                   JOIN product_images i ON i.product_id = pc2.product_id
-                  WHERE pc2.category_id = c.id
+                  WHERE s2.family_id = f.id
                   ORDER BY i.position
                   LIMIT 1
                 )
               ) AS image
-       FROM categories c
-       JOIN product_categories pc ON pc.category_id = c.id
-       GROUP BY c.id
-       HAVING COUNT(pc.product_id) > 0
-       ORDER BY product_count DESC, c.name ASC
+       FROM fam f
+       LEFT JOIN scope s ON s.family_id = f.id
+       LEFT JOIN product_categories pc ON pc.category_id = s.cat_id
+       GROUP BY f.id, f.name, f.slug, f.image_url
+       ORDER BY product_count DESC, f.name ASC
        LIMIT $1`, [limit]
     );
     res.json(r.rows);
@@ -185,18 +209,55 @@ app.get("/api/categories/featured", async (req, res) => {
 });
 
 // ------------------------------------------------------------------ //
-// Catégories (avec compte de produits)
-app.get("/api/categories", async (_req, res) => {
+// Catégories : hiérarchie familles -> rayons, avec comptes de produits.
+//
+// - Le compte d'un RAYON = ses produits directs.
+// - Le compte d'une FAMILLE = la somme des produits de tous ses rayons.
+// - ?flat=1 renvoie la liste à plat (compatibilité), sinon structure imbriquée.
+// - ?nonempty=1 masque les catégories sans produit (utile quand le catalogue
+//   est rempli ; par défaut on renvoie tout pour que le menu existe même sur
+//   un catalogue vide).
+app.get("/api/categories", async (req, res) => {
+  const flat = req.query.flat === "1";
+  const nonEmpty = req.query.nonempty === "1";
   try {
     const r = await pool.query(
-      `SELECT c.id, c.name, c.slug, COUNT(pc.product_id)::int AS product_count
+      `WITH direct AS (
+         SELECT c.id, COUNT(pc.product_id)::int AS n
+         FROM categories c
+         LEFT JOIN product_categories pc ON pc.category_id = c.id
+         GROUP BY c.id
+       )
+       SELECT c.id, c.name, c.slug, c.parent_id, c.image_url,
+              -- produits directs du rayon/famille
+              d.n AS own_count,
+              -- total : ses produits + ceux de ses enfants
+              (d.n + COALESCE((
+                 SELECT SUM(d2.n)::int
+                 FROM categories ch
+                 JOIN direct d2 ON d2.id = ch.id
+                 WHERE ch.parent_id = c.id
+              ), 0))::int AS product_count
        FROM categories c
-       LEFT JOIN product_categories pc ON pc.category_id = c.id
-       GROUP BY c.id
-       HAVING COUNT(pc.product_id) > 0
-       ORDER BY product_count DESC, c.name ASC`
+       JOIN direct d ON d.id = c.id
+       ORDER BY (c.parent_id IS NOT NULL), c.name ASC`
     );
-    res.json(r.rows);
+
+    let rows = r.rows;
+    if (nonEmpty) rows = rows.filter((c) => c.product_count > 0);
+
+    if (flat) return res.json(rows);
+
+    // Structure imbriquée : familles (parent_id NULL) + leurs rayons
+    const families = rows.filter((c) => c.parent_id === null);
+    const byParent = new Map();
+    for (const c of rows) {
+      if (c.parent_id === null) continue;
+      if (!byParent.has(c.parent_id)) byParent.set(c.parent_id, []);
+      byParent.get(c.parent_id).push(c);
+    }
+    const tree = families.map((f) => ({ ...f, children: byParent.get(f.id) || [] }));
+    res.json(tree);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
