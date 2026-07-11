@@ -376,11 +376,11 @@ module.exports = function registerAdminRoutes(app, pool) {
   app.get("/api/admin/categories", requireAuth, async (_req, res) => {
     try {
       const r = await pool.query(
-        `SELECT c.id, c.name, c.slug, c.image_url, COUNT(pc.product_id)::int AS product_count
+        `SELECT c.id, c.name, c.slug, c.parent_id, c.image_url, COUNT(pc.product_id)::int AS product_count
          FROM categories c
          LEFT JOIN product_categories pc ON pc.category_id = c.id
          GROUP BY c.id
-         ORDER BY c.name ASC`
+         ORDER BY (c.parent_id IS NOT NULL), c.name ASC`
       );
       res.json(r.rows);
     } catch (e) {

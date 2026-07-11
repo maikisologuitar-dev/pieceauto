@@ -9,7 +9,7 @@ import {
 /**
  * Panneau modal d'édition d'un produit existant :
  *  - Marque (avec suggestions)
- *  - Catégories (pastilles multi-sélection)
+ *  - Catégories (groupées par famille -> rayons en pastilles)
  *  - Images (upload / URL / retrait / réordonnancement)
  * "Enregistrer" applique les 3 en une fois (marque via PATCH, catégories et
  * images en remplacement complet).
@@ -102,6 +102,35 @@ export default function AdminProductImages({ product, onClose, onSaved }) {
 
   const field = { padding: "8px 12px", border: "1px solid var(--line, #e2e6ea)", borderRadius: 4, width: "100%" };
 
+  // --- Pastille de catégorie (réutilisée pour familles et rayons) ---
+  const CatPill = (c) => {
+    const active = categoryIds.includes(c.id);
+    return (
+      <button type="button" key={c.id} onClick={() => toggleCat(c.id)}
+        style={{
+          padding: "5px 10px", borderRadius: 999, cursor: "pointer",
+          border: "1px solid var(--line, #e2e6ea)", fontSize: 13,
+          background: active ? "var(--ink, #16202c)" : "transparent",
+          color: active ? "#fff" : "inherit",
+        }}>
+        {c.name}
+      </button>
+    );
+  };
+
+  // --- Reconstruit la hiérarchie familles -> rayons depuis la liste plate ---
+  const families = allCategories.filter((c) => c.parent_id == null);
+  const byParent = new Map();
+  for (const c of allCategories) {
+    if (c.parent_id == null) continue;
+    if (!byParent.has(c.parent_id)) byParent.set(c.parent_id, []);
+    byParent.get(c.parent_id).push(c);
+  }
+  // catégories dont le parent n'est pas une famille connue (filet de sécurité)
+  const orphans = allCategories.filter(
+    (c) => c.parent_id != null && !families.some((f) => f.id === c.parent_id)
+  );
+
   return (
     <div
       onClick={onClose}
@@ -136,24 +165,42 @@ export default function AdminProductImages({ product, onClose, onSaved }) {
               </datalist>
             </div>
 
-            {/* Catégories */}
+            {/* Catégories — groupées par famille */}
             <div style={{ marginTop: 16 }}>
               <label style={{ fontWeight: 600, fontSize: 14 }}>Rayons / catégories</label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
-                {allCategories.map((c) => {
-                  const active = categoryIds.includes(c.id);
-                  return (
-                    <button type="button" key={c.id} onClick={() => toggleCat(c.id)}
-                      style={{
-                        padding: "5px 10px", borderRadius: 999, cursor: "pointer",
-                        border: "1px solid var(--line, #e2e6ea)", fontSize: 13,
-                        background: active ? "var(--ink, #16202c)" : "transparent",
-                        color: active ? "#fff" : "inherit",
-                      }}>
-                      {c.name}
-                    </button>
-                  );
-                })}
+              <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 14 }}>
+                {families.map((fam) => (
+                  <div key={fam.id}>
+                    <div style={{
+                      fontSize: 12, fontWeight: 700, textTransform: "uppercase",
+                      letterSpacing: ".04em", color: "var(--steel, #64748b)", marginBottom: 6,
+                    }}>
+                      {fam.name}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {/* la famille elle-même, cliquable */}
+                      {CatPill(fam)}
+                      {/* ses rayons */}
+                      {(byParent.get(fam.id) || []).map((c) => CatPill(c))}
+                    </div>
+                  </div>
+                ))}
+
+                {/* catégories orphelines éventuelles */}
+                {orphans.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--steel)", marginBottom: 6 }}>
+                      Autres
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {orphans.map((c) => CatPill(c))}
+                    </div>
+                  </div>
+                )}
+
+                {families.length === 0 && orphans.length === 0 && (
+                  <p style={{ color: "var(--steel)", fontSize: 13 }}>Aucune catégorie disponible.</p>
+                )}
               </div>
             </div>
 
