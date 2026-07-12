@@ -14,6 +14,8 @@
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
+const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
 const { Pool } = require("pg");
 
 const app = express();
@@ -44,6 +46,34 @@ const registerAdminRoutes = require("./admin");
 registerAdminRoutes(app, pool);
 // Réutilise la génération PDF de l'admin pour le reçu client public
 const { buildInvoicePdf } = registerAdminRoutes;
+
+// ------------------------------------------------------------------ //
+// Upload public de la preuve de paiement (capture / reçu du virement).
+// Même compte Cloudinary que le back-office, dossier séparé.
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const uploadProofMem = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (/^image\//.test(file.mimetype) || file.mimetype === "application/pdf") return cb(null, true);
+    cb(new Error("Seules les images ou un PDF sont acceptés."));
+  },
+});
+
+function uploadProofToCloudinary(buffer) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: "piecesauto/preuves-paiement", resource_type: "auto" },
+      (err, result) => (err ? reject(err) : resolve(result.secure_url))
+    );
+    stream.end(buffer);
+  });
+}
 
 // ------------------------------------------------------------------ //
 app.get("/health", async (_req, res) => {
@@ -284,6 +314,22 @@ app.get("/api/brands", async (_req, res) => {
 });
 
 // ------------------------------------------------------------------ //
+// Coordonnées bancaires (RIB) affichées au client sur la page de
+// confirmation, pour effectuer le virement. Route publique : ce ne sont
+// pas des données propres à un client, mais celles de l'entreprise,
+// modifiables par l'admin via PUT /api/admin/payment-info.
+app.get("/api/payment-info", async (_req, res) => {
+  try {
+    const r = await pool.query(
+      "SELECT bank_name, agency_name, account_holder, iban, bic FROM payment_settings WHERE id = 1"
+    );
+    res.json(r.rows[0] || {});
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ------------------------------------------------------------------ //
 // Création de commande (règlement par virement bancaire uniquement :
 // le client effectue le virement avant livraison, la facture/RIB lui est
 // transmise par l'administrateur après enregistrement de la commande)
@@ -369,6 +415,48 @@ app.post("/api/orders", async (req, res) => {
 });
 
 // ------------------------------------------------------------------ //
+// Upload de la preuve de paiement — route PUBLIQUE sécurisée par jeton,
+// même principe que le reçu ci-dessous (couple numéro de commande + jeton).
+//   POST /api/orders/:number/proof?token=xxx   (multipart, champ "file")
+// Dernière étape du parcours client : une fois reçue, l'admin voit la
+// preuve sur la commande et peut passer directement à la livraison.
+app.post("/api/orders/:number/proof", (req, res) => {
+  uploadProofMem.single("file")(req, res, async (mErr) => {
+    if (mErr) return res.status(400).json({ error: mErr.message });
+
+    const number = req.params.number;
+    const token = (req.query.token || "").trim();
+    if (!token) return res.status(400).json({ error: "Jeton manquant." });
+    if (!req.file) return res.status(400).json({ error: "Aucun fichier reçu." });
+    if (!process.env.CLOUDINARY_CLOUD_NAME) {
+      return res.status(500).json({ error: "Cloudinary non configuré (variables d'env manquantes)." });
+    }
+
+    try {
+      const o = await pool.query("SELECT * FROM orders WHERE order_number = $1", [number]);
+      if (!o.rows.length) return res.status(404).json({ error: "Commande introuvable." });
+      const order = o.rows[0];
+
+      // Même comparaison en temps constant que pour le reçu.
+      const expected = order.public_token || "";
+      const a = Buffer.from(token);
+      const b = Buffer.from(expected);
+      const ok = expected && a.length === b.length && crypto.timingSafeEqual(a, b);
+      if (!ok) return res.status(403).json({ error: "Accès refusé." });
+
+      const url = await uploadProofToCloudinary(req.file.buffer);
+      await pool.query(
+        "UPDATE orders SET proof_url = $1, proof_uploaded_at = now() WHERE id = $2",
+        [url, order.id]
+      );
+      res.json({ ok: true, proof_url: url });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+});
+
+// ------------------------------------------------------------------ //
 // Reçu PDF client — route PUBLIQUE sécurisée par jeton.
 //   GET /api/orders/:number/receipt?token=xxx
 // Le reçu n'est servi que si le couple (numéro de commande, jeton) correspond.
@@ -395,7 +483,8 @@ app.get("/api/orders/:number/receipt", async (req, res) => {
     const items = await pool.query(
       "SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [order.id]
     );
-    const pdfBytes = await buildInvoicePdf(order, items.rows);
+    const bankRes = await pool.query("SELECT * FROM payment_settings WHERE id = 1");
+    const pdfBytes = await buildInvoicePdf(order, items.rows, bankRes.rows[0] || null);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="recu-${number}.pdf"`);
     res.send(Buffer.from(pdfBytes));

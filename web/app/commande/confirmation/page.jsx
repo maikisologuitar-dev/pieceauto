@@ -1,5 +1,8 @@
+// Cible dans le projet : app/commande/confirmation/page.jsx
 import Link from "next/link";
 import ReceiptButton from "@/components/ReceiptButton";
+import PaymentProofPanel from "@/components/PaymentProofPanel";
+import { getPaymentInfo } from "@/lib/api";
 
 export const metadata = { title: "Commande confirmée — PiècesAuto" };
 
@@ -7,6 +10,7 @@ export default async function ConfirmationPage({ searchParams }) {
   const sp = await searchParams;
   const orderNumber = sp?.n || "";
   const token = sp?.t || "";
+  const bank = orderNumber && token ? await getPaymentInfo() : null;
 
   return (
     <section className="section">
@@ -18,8 +22,12 @@ export default async function ConfirmationPage({ searchParams }) {
           {orderNumber && <div className="order-num">{orderNumber}</div>}
           <p>
             Merci pour votre commande. Les <strong>coordonnées bancaires</strong> pour
-            le règlement par virement vous seront transmises par email.
+            le règlement par virement sont indiquées ci-dessous.
           </p>
+
+          {orderNumber && token && bank && (
+            <PaymentProofPanel orderNumber={orderNumber} token={token} bank={bank} />
+          )}
 
           {orderNumber && token && (
             <div style={{ marginTop: 22 }}>

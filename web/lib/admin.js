@@ -159,3 +159,18 @@ export async function openInvoice(id) {
   const url = URL.createObjectURL(blob);
   window.open(url, "_blank");
 }
+
+// --- Coordonnées bancaires (RIB) affichées au client + sur les factures ---
+export async function getAdminPaymentInfo() {
+  const r = await authFetch("/api/admin/payment-info");
+  return r.json();
+}
+export async function updatePaymentInfo(patch) {
+  const r = await authFetch("/api/admin/payment-info", {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || "Échec de la mise à jour des coordonnées bancaires");
+  return data;
+}

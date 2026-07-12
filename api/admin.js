@@ -1,3 +1,4 @@
+
 /**
  * admin.js — Routes back-office (montées sous /api/admin dans server.js)
  *
@@ -72,8 +73,17 @@ function euro(cents) {
   return (cents / 100).toFixed(2).replace(".", ",") + " €";
 }
 
+// ---------- Coordonnées bancaires (RIB) — une seule ligne, id fixe = 1 ----------
+async function getPaymentSettings(pool) {
+  const r = await pool.query("SELECT * FROM payment_settings WHERE id = 1");
+  return r.rows[0] || null;
+}
+
 // ---------- Génération facture PDF ----------
-async function buildInvoicePdf(order, items) {
+// `bank` (optionnel) : { agency_name, bank_name, account_holder, iban, bic }
+// Affiché en bas de facture pour que le client (ou l'admin qui la relit)
+// retrouve toujours l'agence et le RIB utilisés au moment de l'émission.
+async function buildInvoicePdf(order, items, bank = null) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([595, 842]); // A4
   const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -162,6 +172,27 @@ async function buildInvoicePdf(order, items) {
   page.drawText("Merci de votre confiance. Facture à régler selon les modalités convenues.",
     { x: M, y, size: 9, font, color: gray });
 
+  // Coordonnées bancaires (agence + RIB) — pour le règlement par virement.
+  // Toujours affichées quand elles sont renseignées, pour que l'agence utilisée
+  // reste tracée sur chaque facture même si le RIB est changé plus tard.
+  if (bank && (bank.agency_name || bank.iban || bank.bank_name)) {
+    y -= 26;
+    page.drawLine({ start: { x: M, y: y + 14 }, end: { x: 545, y: y + 14 }, thickness: 1, color: gray });
+    page.drawText("Coordonnées bancaires (virement)", { x: M, y, size: 10, font: bold, color: dark });
+    y -= 16;
+    const bankLines = [
+      bank.agency_name ? `Agence : ${bank.agency_name}` : null,
+      bank.bank_name ? `Banque : ${bank.bank_name}` : null,
+      bank.account_holder ? `Titulaire : ${bank.account_holder}` : null,
+      bank.iban ? `IBAN : ${bank.iban}` : null,
+      bank.bic ? `BIC : ${bank.bic}` : null,
+    ].filter(Boolean);
+    for (const line of bankLines) {
+      page.drawText(line, { x: M, y, size: 9, font, color: dark });
+      y -= 13;
+    }
+  }
+
   return pdf.save();
 }
 
@@ -226,7 +257,8 @@ module.exports = function registerAdminRoutes(app, pool) {
     try {
       const r = await pool.query(
         `SELECT id, order_number, customer_name, customer_email, payment_method,
-                status, total_cents, created_at
+                status, total_cents, created_at,
+                (proof_url IS NOT NULL) AS has_proof, proof_uploaded_at
          FROM orders ${where} ORDER BY id DESC LIMIT 200`, params
       );
       res.json(r.rows);
@@ -276,7 +308,8 @@ module.exports = function registerAdminRoutes(app, pool) {
       const items = await pool.query(
         "SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [req.params.id]
       );
-      const pdfBytes = await buildInvoicePdf(o.rows[0], items.rows);
+      const bank = await getPaymentSettings(pool);
+      const pdfBytes = await buildInvoicePdf(o.rows[0], items.rows, bank);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="facture-${o.rows[0].order_number}.pdf"`);
       res.send(Buffer.from(pdfBytes));
@@ -702,6 +735,52 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
+
+  // ================================================================== //
+  //  AJOUT — Coordonnées bancaires (RIB) affichées au client + factures
+  // ================================================================== //
+
+  // --- Lire les coordonnées bancaires actuelles ---
+  app.get("/api/admin/payment-info", requireAuth, async (_req, res) => {
+    try {
+      const bank = await getPaymentSettings(pool);
+      res.json(bank || {});
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Mettre à jour les coordonnées bancaires (une seule ligne, id = 1) ---
+  // Body : { bank_name, agency_name, account_holder, iban, bic }
+  // Le changement est immédiatement visible : sur la page de confirmation
+  // des futures commandes ET sur les factures générées après la mise à jour.
+  app.put("/api/admin/payment-info", requireAuth, async (req, res) => {
+    const { bank_name, agency_name, account_holder, iban, bic } = req.body || {};
+    try {
+      const r = await pool.query(
+        `INSERT INTO payment_settings (id, bank_name, agency_name, account_holder, iban, bic, updated_at)
+         VALUES (1, $1, $2, $3, $4, $5, now())
+         ON CONFLICT (id) DO UPDATE SET
+           bank_name = EXCLUDED.bank_name,
+           agency_name = EXCLUDED.agency_name,
+           account_holder = EXCLUDED.account_holder,
+           iban = EXCLUDED.iban,
+           bic = EXCLUDED.bic,
+           updated_at = now()
+         RETURNING *`,
+        [
+          bank_name ? String(bank_name).trim() : null,
+          agency_name ? String(agency_name).trim() : null,
+          account_holder ? String(account_holder).trim() : null,
+          iban ? String(iban).trim() : null,
+          bic ? String(bic).trim() : null,
+        ]
+      );
+      res.json(r.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   // --- Suppression d'un produit ---
   // Les images et liens catégories partent en cascade (FK ON DELETE CASCADE).

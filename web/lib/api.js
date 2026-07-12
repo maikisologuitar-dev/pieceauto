@@ -44,6 +44,27 @@ export async function getFeaturedCategories(limit = 10) {
   return res.json();
 }
 
+// Coordonnées bancaires (RIB) actuelles, affichées sur la page de confirmation
+export async function getPaymentInfo() {
+  const res = await fetch(`${API}/api/payment-info`, { cache: "no-store" });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+// Téléversement de la preuve de paiement (capture ou reçu du virement).
+// Protégé par le jeton public de la commande, comme le reçu PDF.
+export async function uploadPaymentProof(orderNumber, token, file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(
+    `${API}/api/orders/${encodeURIComponent(orderNumber)}/proof?token=${encodeURIComponent(token)}`,
+    { method: "POST", body: fd }
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Échec de l'envoi de la preuve de paiement");
+  return data;
+}
+
 export async function createOrder(payload) {
   const res = await fetch(`${API}/api/orders`, {
     method: "POST",
