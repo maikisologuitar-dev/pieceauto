@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { PAYMENT_LABELS } from "@/lib/format";
+import ReceiptButton from "@/components/ReceiptButton";
 
 export const metadata = { title: "Commande confirmée — PiècesAuto" };
 
 export default async function ConfirmationPage({ searchParams }) {
   const sp = await searchParams;
   const orderNumber = sp?.n || "";
-  const payment = PAYMENT_LABELS[sp?.p] || null;
+  const token = sp?.t || "";
 
   return (
     <section className="section">
@@ -17,11 +17,20 @@ export default async function ConfirmationPage({ searchParams }) {
           </h1>
           {orderNumber && <div className="order-num">{orderNumber}</div>}
           <p>
-            Merci pour votre commande. Vous recevrez votre <strong>facture par
-            email</strong> avec les instructions de règlement
-            {payment ? <> ({payment.toLowerCase()})</> : null}.
+            Merci pour votre commande. Les <strong>coordonnées bancaires</strong> pour
+            le règlement par virement vous seront transmises par email.
           </p>
-          <p style={{ marginTop: 18 }}>
+
+          {orderNumber && token && (
+            <div style={{ marginTop: 22 }}>
+              <ReceiptButton orderNumber={orderNumber} token={token} />
+              <p style={{ color: "var(--steel, #64748b)", fontSize: 13, marginTop: 8 }}>
+                Conservez ce reçu : il récapitule votre commande.
+              </p>
+            </div>
+          )}
+
+          <p style={{ marginTop: 22 }}>
             <Link href="/produits" style={{ color: "var(--accent-dark)", fontWeight: 600 }}>
               ← Continuer mes achats
             </Link>

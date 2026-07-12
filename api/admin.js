@@ -721,3 +721,7 @@ module.exports = function registerAdminRoutes(app, pool) {
   });
 
 };
+// ---------------------------------------------------------------- //
+// Export de la génération PDF pour réutilisation côté public
+// (server.js l'utilise pour le reçu client, sans dupliquer le code).
+module.exports.buildInvoicePdf = buildInvoicePdf;

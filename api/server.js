@@ -13,6 +13,7 @@
 
 const express = require("express");
 const cors = require("cors");
+const crypto = require("crypto");
 const { Pool } = require("pg");
 
 const app = express();
@@ -41,6 +42,8 @@ const PORT = Number(process.env.PORT || 4000);
 // Routes back-office (login, commandes, produits, factures PDF)
 const registerAdminRoutes = require("./admin");
 registerAdminRoutes(app, pool);
+// Réutilise la génération PDF de l'admin pour le reçu client public
+const { buildInvoicePdf } = registerAdminRoutes;
 
 // ------------------------------------------------------------------ //
 app.get("/health", async (_req, res) => {
@@ -321,16 +324,22 @@ app.post("/api/orders", async (req, res) => {
     const seq = await client.query("SELECT nextval('order_number_seq') AS n");
     const orderNumber = `CMD-${new Date().getFullYear()}-${String(seq.rows[0].n).padStart(6, "0")}`;
 
+    // Jeton public imprévisible : permet au client de télécharger SON reçu
+    // via un lien impossible à deviner (protège les données des autres clients).
+    const publicToken = crypto.randomBytes(24).toString("hex");
+
     const orderRes = await client.query(
       `INSERT INTO orders
          (order_number, customer_name, customer_email, customer_phone,
-          address_line, postal_code, city, country, payment_method, total_cents, note)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+          address_line, postal_code, city, country, payment_method, total_cents, note,
+          public_token)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING id, order_number, created_at`,
       [
         orderNumber, customer.name, customer.email, customer.phone || null,
         customer.address_line, customer.postal_code, customer.city,
         customer.country || "France", payment_method, total, note || null,
+        publicToken,
       ]
     );
     const orderId = orderRes.rows[0].id;
@@ -348,6 +357,7 @@ app.post("/api/orders", async (req, res) => {
       order_number: orderRes.rows[0].order_number,
       total_cents: total,
       payment_method,
+      public_token: publicToken,
       message: "Commande enregistrée. La facture vous sera transmise par email.",
     });
   } catch (e) {
@@ -355,6 +365,42 @@ app.post("/api/orders", async (req, res) => {
     res.status(500).json({ error: e.message });
   } finally {
     client.release();
+  }
+});
+
+// ------------------------------------------------------------------ //
+// Reçu PDF client — route PUBLIQUE sécurisée par jeton.
+//   GET /api/orders/:number/receipt?token=xxx
+// Le reçu n'est servi que si le couple (numéro de commande, jeton) correspond.
+// Sans le bon jeton, impossible de deviner ou d'énumérer les reçus des autres.
+app.get("/api/orders/:number/receipt", async (req, res) => {
+  const number = req.params.number;
+  const token = (req.query.token || "").trim();
+  if (!token) return res.status(400).json({ error: "Jeton manquant." });
+
+  try {
+    const o = await pool.query(
+      "SELECT * FROM orders WHERE order_number = $1", [number]
+    );
+    if (!o.rows.length) return res.status(404).json({ error: "Commande introuvable." });
+
+    const order = o.rows[0];
+    // Comparaison en temps constant pour éviter les attaques temporelles
+    const expected = order.public_token || "";
+    const a = Buffer.from(token);
+    const b = Buffer.from(expected);
+    const ok = expected && a.length === b.length && crypto.timingSafeEqual(a, b);
+    if (!ok) return res.status(403).json({ error: "Accès refusé." });
+
+    const items = await pool.query(
+      "SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [order.id]
+    );
+    const pdfBytes = await buildInvoicePdf(order, items.rows);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="recu-${number}.pdf"`);
+    res.send(Buffer.from(pdfBytes));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

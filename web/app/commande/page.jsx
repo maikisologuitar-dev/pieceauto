@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "@/components/CartProvider";
 import { createOrder } from "@/lib/api";
-import { formatPrice, PAYMENT_LABELS } from "@/lib/format";
+import { formatPrice } from "@/lib/format";
 
 export default function CheckoutPage() {
   const cart = useCart();
@@ -13,7 +13,8 @@ export default function CheckoutPage() {
     name: "", email: "", phone: "",
     address_line: "", postal_code: "", city: "", note: "",
   });
-  const [payment, setPayment] = useState("virement");
+  // Paiement : virement bancaire uniquement (plus de choix)
+  const payment = "virement";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -46,7 +47,10 @@ export default function CheckoutPage() {
         items: cart.items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
       });
       cart.clear();
-      router.push(`/commande/confirmation?n=${encodeURIComponent(res.order_number)}&p=${payment}`);
+      // On transmet le numéro ET le token de reçu à la page de confirmation
+      const params = new URLSearchParams({ n: res.order_number });
+      if (res.public_token) params.set("t", res.public_token);
+      router.push(`/commande/confirmation?${params.toString()}`);
     } catch (e) {
       setError(e.message);
       setSubmitting(false);
@@ -57,7 +61,6 @@ export default function CheckoutPage() {
     <section className="section">
       <div className="container" style={{ maxWidth: 760 }}>
         <h1 className="section-title">Finaliser la commande</h1>
-
         <div className="form-grid">
           <div><label>Nom complet *</label><input value={form.name} onChange={set("name")} autoComplete="name" /></div>
           <div><label>Email *</label><input type="email" value={form.email} onChange={set("email")} autoComplete="email" /></div>
@@ -70,28 +73,19 @@ export default function CheckoutPage() {
 
         <h2 className="section-title" style={{ marginTop: 30, fontSize: 20 }}>Mode de règlement</h2>
         <div className="payment-options">
-          {Object.entries(PAYMENT_LABELS).map(([value, label]) => (
-            <label key={value}>
-              <input
-                type="radio" name="payment" value={value}
-                checked={payment === value}
-                onChange={() => setPayment(value)}
-              />
-              {label}
-            </label>
-          ))}
+          <label>
+            <input type="radio" name="payment" value="virement" checked readOnly />
+            Virement bancaire
+          </label>
         </div>
-
         <div className="notice">
-          Aucun paiement en ligne : la facture correspondant à votre commande vous
-          sera transmise par email avec les instructions de règlement
-          ({PAYMENT_LABELS[payment].toLowerCase()}).
+          Aucun paiement en ligne : un récapitulatif de votre commande vous est
+          remis immédiatement en PDF, et les coordonnées bancaires pour le
+          virement vous seront transmises par email.
         </div>
 
         <div className="cart-total">Total : {formatPrice(cart.total) || "sur devis"}</div>
-
         {error && <p style={{ color: "var(--accent-dark)", marginTop: 12, fontWeight: 600 }}>{error}</p>}
-
         <button
           className="btn-add" style={{ marginTop: 18 }}
           onClick={submit} disabled={submitting}
