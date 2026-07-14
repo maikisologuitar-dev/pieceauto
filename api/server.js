@@ -333,7 +333,7 @@ app.get("/api/payment-info", async (_req, res) => {
       res.json({
         mode,
         payment_link_url: row.payment_link_url || null,
-        payment_link_label: row.payment_link_label || "Payer en ligne",
+        payment_link_label: row.payment_link_label || "Payer",
       });
     } else {
       res.json({

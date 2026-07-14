@@ -208,7 +208,7 @@ async function buildInvoicePdf(order, items, bank = null) {
     page.drawLine({ start: { x: M, y: y + 14 }, end: { x: 545, y: y + 14 }, thickness: 1, color: gray });
     page.drawText("Règlement en ligne", { x: M, y, size: 10, font: bold, color: dark });
     y -= 18;
-    const label = bank.payment_link_label || "Cliquez ici pour payer en ligne";
+    const label = bank.payment_link_label || "Payer";
     page.drawText(label, { x: M, y, size: 10, font: bold, color: rgb(0.06, 0.35, 0.75) });
     // Zone cliquable posée directement sur le texte du lien
     const textWidth = bold.widthOfTextAtSize(label, 10);

@@ -153,7 +153,7 @@ export default function AdminPaymentSettings() {
         <label>
           Texte du bouton (optionnel)
           <input
-            placeholder="Payer en ligne"
+            placeholder="Payer"
             value={form.payment_link_label}
             onChange={(e) => update("payment_link_label", e.target.value)}
           />

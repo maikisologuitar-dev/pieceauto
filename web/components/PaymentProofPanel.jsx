@@ -119,7 +119,7 @@ export default function PaymentProofPanel({ orderNumber, token, bank }) {
             rel="noopener noreferrer"
             style={linkBtnStyle}
           >
-            {bank.payment_link_label || "Payer en ligne"}
+            {bank.payment_link_label || "Payer"}
           </a>
 
           <div className="notice" style={{ marginTop: 18 }}>
