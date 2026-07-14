@@ -321,9 +321,30 @@ app.get("/api/brands", async (_req, res) => {
 app.get("/api/payment-info", async (_req, res) => {
   try {
     const r = await pool.query(
-      "SELECT bank_name, agency_name, account_holder, iban, bic FROM payment_settings WHERE id = 1"
+      `SELECT payment_mode, bank_name, agency_name, account_holder, iban, bic,
+              payment_link_url, payment_link_label
+       FROM payment_settings WHERE id = 1`
     );
-    res.json(r.rows[0] || {});
+    const row = r.rows[0] || {};
+    const mode = row.payment_mode === "lien" ? "lien" : "rib";
+    // On ne renvoie que les champs utiles au mode actif, pour éviter d'exposer
+    // un RIB périmé pendant que le lien est actif (ou l'inverse).
+    if (mode === "lien") {
+      res.json({
+        mode,
+        payment_link_url: row.payment_link_url || null,
+        payment_link_label: row.payment_link_label || "Payer en ligne",
+      });
+    } else {
+      res.json({
+        mode,
+        bank_name: row.bank_name || null,
+        agency_name: row.agency_name || null,
+        account_holder: row.account_holder || null,
+        iban: row.iban || null,
+        bic: row.bic || null,
+      });
+    }
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

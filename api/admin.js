@@ -1,4 +1,3 @@
-
 /**
  * admin.js — Routes back-office (montées sous /api/admin dans server.js)
  *
@@ -19,7 +18,30 @@
  */
 
 const crypto = require("crypto");
-const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+const { PDFDocument, StandardFonts, rgb, PDFName, PDFString } = require("pdf-lib");
+
+// ---------- Annotation de lien cliquable (pdf-lib n'a pas d'API haut niveau) ----------
+// rect = [x1, y1, x2, y2] en coordonnées PDF (origine en bas à gauche)
+function addLinkAnnotation(pdfDoc, page, rect, url) {
+  const linkAnnot = pdfDoc.context.obj({
+    Type: "Annot",
+    Subtype: "Link",
+    Rect: rect,
+    Border: [0, 0, 0],
+    A: {
+      Type: "Action",
+      S: "URI",
+      URI: PDFString.of(url),
+    },
+  });
+  const linkRef = pdfDoc.context.register(linkAnnot);
+  const existing = page.node.lookup(PDFName.of("Annots"));
+  if (existing) {
+    existing.push(linkRef);
+  } else {
+    page.node.set(PDFName.of("Annots"), pdfDoc.context.obj([linkRef]));
+  }
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-en-production-piecesauto";
 const TOKEN_TTL_SECONDS = 60 * 60 * 8; // 8 heures
@@ -172,10 +194,34 @@ async function buildInvoicePdf(order, items, bank = null) {
   page.drawText("Merci de votre confiance. Facture à régler selon les modalités convenues.",
     { x: M, y, size: 9, font, color: gray });
 
-  // Coordonnées bancaires (agence + RIB) — pour le règlement par virement.
-  // Toujours affichées quand elles sont renseignées, pour que l'agence utilisée
-  // reste tracée sur chaque facture même si le RIB est changé plus tard.
-  if (bank && (bank.agency_name || bank.iban || bank.bank_name)) {
+  // Mode de paiement actif AU MOMENT DE LA GÉNÉRATION de cette facture :
+  // - "lien"  -> lien de paiement cliquable (le RIB n'est pas affiché)
+  // - "rib" (ou valeur absente, compatibilité des anciennes factures) -> RIB
+  // Le mode est figé dans la facture : un changement ultérieur de l'admin
+  // n'affecte jamais une facture déjà générée/consultée à nouveau, puisque
+  // `bank` est relu depuis payment_settings à chaque appel de cette fonction
+  // au moment précis de la demande (voir routes appelantes).
+  const mode = bank && bank.payment_mode === "lien" ? "lien" : "rib";
+
+  if (mode === "lien" && bank && bank.payment_link_url) {
+    y -= 26;
+    page.drawLine({ start: { x: M, y: y + 14 }, end: { x: 545, y: y + 14 }, thickness: 1, color: gray });
+    page.drawText("Règlement en ligne", { x: M, y, size: 10, font: bold, color: dark });
+    y -= 18;
+    const label = bank.payment_link_label || "Cliquez ici pour payer en ligne";
+    page.drawText(label, { x: M, y, size: 10, font: bold, color: rgb(0.06, 0.35, 0.75) });
+    // Zone cliquable posée directement sur le texte du lien
+    const textWidth = bold.widthOfTextAtSize(label, 10);
+    addLinkAnnotation(pdf, page, [M, y - 3, M + textWidth, y + 11], bank.payment_link_url);
+    y -= 15;
+    page.drawText(bank.payment_link_url, { x: M, y, size: 8, font, color: gray });
+    y -= 13;
+    page.drawText(
+      "Une fois le paiement effectué, téléversez votre preuve de paiement sur la plateforme.",
+      { x: M, y, size: 8, font, color: gray }
+    );
+  } else if (bank && (bank.agency_name || bank.iban || bank.bank_name)) {
+    // Coordonnées bancaires (agence + RIB) — pour le règlement par virement.
     y -= 26;
     page.drawLine({ start: { x: M, y: y + 14 }, end: { x: 545, y: y + 14 }, thickness: 1, color: gray });
     page.drawText("Coordonnées bancaires (virement)", { x: M, y, size: 10, font: bold, color: dark });
@@ -750,30 +796,63 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
-  // --- Mettre à jour les coordonnées bancaires (une seule ligne, id = 1) ---
-  // Body : { bank_name, agency_name, account_holder, iban, bic }
-  // Le changement est immédiatement visible : sur la page de confirmation
-  // des futures commandes ET sur les factures générées après la mise à jour.
+  // --- Mettre à jour les coordonnées bancaires ET/OU le lien de paiement ---
+  // Body : { payment_mode: "rib"|"lien", bank_name, agency_name, account_holder,
+  //          iban, bic, payment_link_url, payment_link_label }
+  // `payment_mode` détermine ce qui est montré au client et sur les FUTURES
+  // factures (celles déjà émises ne changent pas rétroactivement, voir
+  // buildInvoicePdf). Les deux jeux de champs (RIB et lien) sont conservés en
+  // base même quand ils ne sont pas actifs, pour basculer sans ressaisir :
+  // l'admin peut préparer le lien pendant qu'il est en mode RIB, par exemple.
   app.put("/api/admin/payment-info", requireAuth, async (req, res) => {
-    const { bank_name, agency_name, account_holder, iban, bic } = req.body || {};
+    const {
+      payment_mode, bank_name, agency_name, account_holder, iban, bic,
+      payment_link_url, payment_link_label,
+    } = req.body || {};
+
+    if (payment_mode && !["rib", "lien"].includes(payment_mode)) {
+      return res.status(400).json({ error: "payment_mode doit être 'rib' ou 'lien'." });
+    }
+    // Si on active le mode lien, le lien doit être renseigné (sinon la facture
+    // n'aurait rien à afficher). On ne bloque pas le mode 'rib'.
+    if (payment_mode === "lien" && !payment_link_url) {
+      return res.status(400).json({ error: "Un lien de paiement est requis pour activer ce mode." });
+    }
+
     try {
+      // On ne touche que les colonnes explicitement fournies, pour permettre
+      // de changer uniquement le mode sans re-poster tous les champs RIB.
+      const current = await getPaymentSettings(pool);
+      const next = {
+        payment_mode: payment_mode !== undefined ? payment_mode : (current?.payment_mode || "rib"),
+        bank_name: bank_name !== undefined ? (bank_name ? String(bank_name).trim() : null) : current?.bank_name ?? null,
+        agency_name: agency_name !== undefined ? (agency_name ? String(agency_name).trim() : null) : current?.agency_name ?? null,
+        account_holder: account_holder !== undefined ? (account_holder ? String(account_holder).trim() : null) : current?.account_holder ?? null,
+        iban: iban !== undefined ? (iban ? String(iban).trim() : null) : current?.iban ?? null,
+        bic: bic !== undefined ? (bic ? String(bic).trim() : null) : current?.bic ?? null,
+        payment_link_url: payment_link_url !== undefined ? (payment_link_url ? String(payment_link_url).trim() : null) : current?.payment_link_url ?? null,
+        payment_link_label: payment_link_label !== undefined ? (payment_link_label ? String(payment_link_label).trim() : null) : current?.payment_link_label ?? null,
+      };
+
       const r = await pool.query(
-        `INSERT INTO payment_settings (id, bank_name, agency_name, account_holder, iban, bic, updated_at)
-         VALUES (1, $1, $2, $3, $4, $5, now())
+        `INSERT INTO payment_settings
+           (id, payment_mode, bank_name, agency_name, account_holder, iban, bic,
+            payment_link_url, payment_link_label, updated_at)
+         VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, now())
          ON CONFLICT (id) DO UPDATE SET
+           payment_mode = EXCLUDED.payment_mode,
            bank_name = EXCLUDED.bank_name,
            agency_name = EXCLUDED.agency_name,
            account_holder = EXCLUDED.account_holder,
            iban = EXCLUDED.iban,
            bic = EXCLUDED.bic,
+           payment_link_url = EXCLUDED.payment_link_url,
+           payment_link_label = EXCLUDED.payment_link_label,
            updated_at = now()
          RETURNING *`,
         [
-          bank_name ? String(bank_name).trim() : null,
-          agency_name ? String(agency_name).trim() : null,
-          account_holder ? String(account_holder).trim() : null,
-          iban ? String(iban).trim() : null,
-          bic ? String(bic).trim() : null,
+          next.payment_mode, next.bank_name, next.agency_name, next.account_holder,
+          next.iban, next.bic, next.payment_link_url, next.payment_link_label,
         ]
       );
       res.json(r.rows[0]);

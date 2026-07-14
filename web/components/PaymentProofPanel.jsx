@@ -15,6 +15,18 @@ const copyBtnStyle = {
   whiteSpace: "nowrap",
 };
 
+const linkBtnStyle = {
+  display: "inline-block",
+  marginTop: 6,
+  padding: "10px 20px",
+  fontSize: 15,
+  fontWeight: 700,
+  borderRadius: 6,
+  background: "var(--accent-dark, #1a56db)",
+  color: "#fff",
+  textDecoration: "none",
+};
+
 function CopyField({ label, value }) {
   const [copied, setCopied] = useState(false);
   if (!value) return null;
@@ -52,11 +64,16 @@ function CopyField({ label, value }) {
 }
 
 /**
- * Affiche le RIB actuel (mis à jour par l'admin à tout moment) avec des
- * boutons "Copier", puis permet au client de téléverser sa preuve de
- * paiement — dernière étape avant la préparation de la livraison.
+ * Affiche le mode de règlement actuellement actif — RIB ou lien de paiement,
+ * choisi par l'admin dans /admin/parametres, et peut basculer d'une commande
+ * à l'autre selon la disponibilité du lien — puis permet au client de
+ * téléverser sa preuve de paiement, dernière étape avant la livraison
+ * (identique dans les deux modes).
  *
- * Props : orderNumber, token (jeton public de la commande), bank (RIB)
+ * Props : orderNumber, token (jeton public de la commande),
+ *         bank = résultat de getPaymentInfo(), forme :
+ *           { mode: "rib", bank_name, agency_name, account_holder, iban, bic }
+ *           { mode: "lien", payment_link_url, payment_link_label }
  */
 export default function PaymentProofPanel({ orderNumber, token, bank }) {
   const [file, setFile] = useState(null);
@@ -64,8 +81,12 @@ export default function PaymentProofPanel({ orderNumber, token, bank }) {
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
 
-  const hasBank = bank && (bank.iban || bank.agency_name || bank.bank_name);
-  if (!hasBank) return null;
+  // Rétro-compatible : si `bank.mode` est absent (ancien format), on retombe
+  // sur le RIB pour ne rien casser tant que tous les appels ne sont pas à jour.
+  const mode = bank?.mode === "lien" ? "lien" : "rib";
+  const hasRib = mode === "rib" && bank && (bank.iban || bank.agency_name || bank.bank_name);
+  const hasLink = mode === "lien" && bank && bank.payment_link_url;
+  if (!hasRib && !hasLink) return null;
 
   const submit = async () => {
     if (!file) {
@@ -85,24 +106,50 @@ export default function PaymentProofPanel({ orderNumber, token, bank }) {
 
   return (
     <div style={{ marginTop: 26, border: "1px solid var(--line, #e2e6ea)", borderRadius: 8, padding: 20 }}>
-      <h2 style={{ fontSize: 18, marginTop: 0, marginBottom: 4 }}>Coordonnées pour le virement</h2>
-      <p style={{ color: "var(--steel, #64748b)", fontSize: 13, marginTop: 0 }}>
-        Effectuez le virement vers ce compte, puis téléversez votre justificatif ci-dessous.
-      </p>
+      {hasLink ? (
+        <>
+          <h2 style={{ fontSize: 18, marginTop: 0, marginBottom: 4 }}>Réglez votre commande en ligne</h2>
+          <p style={{ color: "var(--steel, #64748b)", fontSize: 13, marginTop: 0 }}>
+            Cliquez sur le bouton ci-dessous pour effectuer votre paiement, puis
+            téléversez votre justificatif.
+          </p>
+          <a
+            href={bank.payment_link_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={linkBtnStyle}
+          >
+            {bank.payment_link_label || "Payer en ligne"}
+          </a>
 
-      <div style={{ marginTop: 10 }}>
-        <CopyField label="Agence" value={bank.agency_name} />
-        <CopyField label="Banque" value={bank.bank_name} />
-        <CopyField label="Titulaire du compte" value={bank.account_holder} />
-        <CopyField label="IBAN" value={bank.iban} />
-        <CopyField label="BIC" value={bank.bic} />
-      </div>
+          <div className="notice" style={{ marginTop: 18 }}>
+            Dernière étape avant la livraison : une fois le paiement effectué,
+            téléversez ici une capture d'écran ou le reçu de votre paiement.
+            Votre commande part en préparation dès sa vérification par notre équipe.
+          </div>
+        </>
+      ) : (
+        <>
+          <h2 style={{ fontSize: 18, marginTop: 0, marginBottom: 4 }}>Coordonnées pour le virement</h2>
+          <p style={{ color: "var(--steel, #64748b)", fontSize: 13, marginTop: 0 }}>
+            Effectuez le virement vers ce compte, puis téléversez votre justificatif ci-dessous.
+          </p>
 
-      <div className="notice" style={{ marginTop: 18 }}>
-        Dernière étape avant la livraison : une fois le virement effectué, téléversez
-        ici une capture d'écran ou le reçu de votre paiement. Votre commande part en
-        préparation dès sa vérification par notre équipe.
-      </div>
+          <div style={{ marginTop: 10 }}>
+            <CopyField label="Agence" value={bank.agency_name} />
+            <CopyField label="Banque" value={bank.bank_name} />
+            <CopyField label="Titulaire du compte" value={bank.account_holder} />
+            <CopyField label="IBAN" value={bank.iban} />
+            <CopyField label="BIC" value={bank.bic} />
+          </div>
+
+          <div className="notice" style={{ marginTop: 18 }}>
+            Dernière étape avant la livraison : une fois le virement effectué, téléversez
+            ici une capture d'écran ou le reçu de votre paiement. Votre commande part en
+            préparation dès sa vérification par notre équipe.
+          </div>
+        </>
+      )}
 
       {done ? (
         <p style={{ color: "green", fontWeight: 600, marginTop: 14 }}>
