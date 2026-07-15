@@ -4,6 +4,7 @@ import ReceiptButton from "@/components/ReceiptButton";
 import PaymentProofPanel from "@/components/PaymentProofPanel";
 import { getPaymentInfo } from "@/lib/api";
 
+
 export const metadata = { title: "Commande confirmée — PiècesAuto" };
 
 export default async function ConfirmationPage({ searchParams }) {
@@ -32,6 +33,7 @@ export default async function ConfirmationPage({ searchParams }) {
           {orderNumber && token && (
             <div style={{ marginTop: 22 }}>
               <ReceiptButton orderNumber={orderNumber} token={token} />
+             
               <p style={{ color: "var(--steel, #64748b)", fontSize: 13, marginTop: 8 }}>
                 Conservez ce reçu : il récapitule votre commande.
               </p>

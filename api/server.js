@@ -243,13 +243,6 @@ app.get("/api/categories/featured", async (req, res) => {
 
 // ------------------------------------------------------------------ //
 // Catégories : hiérarchie familles -> rayons, avec comptes de produits.
-//
-// - Le compte d'un RAYON = ses produits directs.
-// - Le compte d'une FAMILLE = la somme des produits de tous ses rayons.
-// - ?flat=1 renvoie la liste à plat (compatibilité), sinon structure imbriquée.
-// - ?nonempty=1 masque les catégories sans produit (utile quand le catalogue
-//   est rempli ; par défaut on renvoie tout pour que le menu existe même sur
-//   un catalogue vide).
 app.get("/api/categories", async (req, res) => {
   const flat = req.query.flat === "1";
   const nonEmpty = req.query.nonempty === "1";
@@ -262,9 +255,7 @@ app.get("/api/categories", async (req, res) => {
          GROUP BY c.id
        )
        SELECT c.id, c.name, c.slug, c.parent_id, c.image_url,
-              -- produits directs du rayon/famille
               d.n AS own_count,
-              -- total : ses produits + ceux de ses enfants
               (d.n + COALESCE((
                  SELECT SUM(d2.n)::int
                  FROM categories ch
@@ -281,7 +272,6 @@ app.get("/api/categories", async (req, res) => {
 
     if (flat) return res.json(rows);
 
-    // Structure imbriquée : familles (parent_id NULL) + leurs rayons
     const families = rows.filter((c) => c.parent_id === null);
     const byParent = new Map();
     for (const c of rows) {
@@ -315,9 +305,7 @@ app.get("/api/brands", async (_req, res) => {
 
 // ------------------------------------------------------------------ //
 // Coordonnées bancaires (RIB) affichées au client sur la page de
-// confirmation, pour effectuer le virement. Route publique : ce ne sont
-// pas des données propres à un client, mais celles de l'entreprise,
-// modifiables par l'admin via PUT /api/admin/payment-info.
+// confirmation, pour effectuer le virement.
 app.get("/api/payment-info", async (_req, res) => {
   try {
     const r = await pool.query(
@@ -327,8 +315,6 @@ app.get("/api/payment-info", async (_req, res) => {
     );
     const row = r.rows[0] || {};
     const mode = row.payment_mode === "lien" ? "lien" : "rib";
-    // On ne renvoie que les champs utiles au mode actif, pour éviter d'exposer
-    // un RIB périmé pendant que le lien est actif (ou l'inverse).
     if (mode === "lien") {
       res.json({
         mode,
@@ -351,13 +337,12 @@ app.get("/api/payment-info", async (_req, res) => {
 });
 
 // ------------------------------------------------------------------ //
-// Création de commande (règlement par virement bancaire uniquement :
-// le client effectue le virement avant livraison, la facture/RIB lui est
-// transmise par l'administrateur après enregistrement de la commande)
+// Création de commande (règlement par virement bancaire uniquement)
 const PAYMENT_METHODS = ["virement"];
 
 app.post("/api/orders", async (req, res) => {
-  const { customer, payment_method, items, note } = req.body || {};
+  // MODIF LIVRAISON : on lit aussi delivery_km / delivery_fee_cents du payload.
+  const { customer, payment_method, items, note, delivery_km, delivery_fee_cents } = req.body || {};
 
   if (!customer || !customer.name || !customer.email || !customer.address_line ||
       !customer.postal_code || !customer.city) {
@@ -388,25 +373,31 @@ app.post("/api/orders", async (req, res) => {
       lines.push({ ...p, quantity: qty });
     }
 
+    // MODIF LIVRAISON : frais de livraison (calculés côté client, transmis dans
+    // le payload) sécurisés puis ajoutés au total dû.
+    const deliveryKm = Math.max(0, Number(delivery_km) || 0);
+    const deliveryFeeCents = Math.max(0, Math.round(Number(delivery_fee_cents) || 0));
+    total += deliveryFeeCents;
+
     const seq = await client.query("SELECT nextval('order_number_seq') AS n");
     const orderNumber = `CMD-${new Date().getFullYear()}-${String(seq.rows[0].n).padStart(6, "0")}`;
 
-    // Jeton public imprévisible : permet au client de télécharger SON reçu
-    // via un lien impossible à deviner (protège les données des autres clients).
+    // Jeton public imprévisible : permet au client de télécharger SON reçu.
     const publicToken = crypto.randomBytes(24).toString("hex");
 
+    // MODIF LIVRAISON : deux colonnes en plus (delivery_km, delivery_fee_cents).
     const orderRes = await client.query(
       `INSERT INTO orders
          (order_number, customer_name, customer_email, customer_phone,
           address_line, postal_code, city, country, payment_method, total_cents, note,
-          public_token)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          public_token, delivery_km, delivery_fee_cents)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING id, order_number, created_at`,
       [
         orderNumber, customer.name, customer.email, customer.phone || null,
         customer.address_line, customer.postal_code, customer.city,
         customer.country || "France", payment_method, total, note || null,
-        publicToken,
+        publicToken, deliveryKm, deliveryFeeCents,
       ]
     );
     const orderId = orderRes.rows[0].id;
@@ -423,6 +414,8 @@ app.post("/api/orders", async (req, res) => {
     res.status(201).json({
       order_number: orderRes.rows[0].order_number,
       total_cents: total,
+      delivery_km: deliveryKm,
+      delivery_fee_cents: deliveryFeeCents,
       payment_method,
       public_token: publicToken,
       message: "Commande enregistrée. La facture vous sera transmise par email.",
@@ -436,11 +429,7 @@ app.post("/api/orders", async (req, res) => {
 });
 
 // ------------------------------------------------------------------ //
-// Upload de la preuve de paiement — route PUBLIQUE sécurisée par jeton,
-// même principe que le reçu ci-dessous (couple numéro de commande + jeton).
-//   POST /api/orders/:number/proof?token=xxx   (multipart, champ "file")
-// Dernière étape du parcours client : une fois reçue, l'admin voit la
-// preuve sur la commande et peut passer directement à la livraison.
+// Upload de la preuve de paiement — route PUBLIQUE sécurisée par jeton.
 app.post("/api/orders/:number/proof", (req, res) => {
   uploadProofMem.single("file")(req, res, async (mErr) => {
     if (mErr) return res.status(400).json({ error: mErr.message });
@@ -458,7 +447,6 @@ app.post("/api/orders/:number/proof", (req, res) => {
       if (!o.rows.length) return res.status(404).json({ error: "Commande introuvable." });
       const order = o.rows[0];
 
-      // Même comparaison en temps constant que pour le reçu.
       const expected = order.public_token || "";
       const a = Buffer.from(token);
       const b = Buffer.from(expected);
@@ -479,9 +467,6 @@ app.post("/api/orders/:number/proof", (req, res) => {
 
 // ------------------------------------------------------------------ //
 // Reçu PDF client — route PUBLIQUE sécurisée par jeton.
-//   GET /api/orders/:number/receipt?token=xxx
-// Le reçu n'est servi que si le couple (numéro de commande, jeton) correspond.
-// Sans le bon jeton, impossible de deviner ou d'énumérer les reçus des autres.
 app.get("/api/orders/:number/receipt", async (req, res) => {
   const number = req.params.number;
   const token = (req.query.token || "").trim();
@@ -494,7 +479,6 @@ app.get("/api/orders/:number/receipt", async (req, res) => {
     if (!o.rows.length) return res.status(404).json({ error: "Commande introuvable." });
 
     const order = o.rows[0];
-    // Comparaison en temps constant pour éviter les attaques temporelles
     const expected = order.public_token || "";
     const a = Buffer.from(token);
     const b = Buffer.from(expected);

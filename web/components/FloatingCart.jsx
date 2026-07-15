@@ -10,7 +10,6 @@ export default function FloatingCart() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  // Fermer avec la touche Échap
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => e.key === "Escape" && setOpen(false);
@@ -18,50 +17,48 @@ export default function FloatingCart() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Bloquer le scroll de la page quand le volet est ouvert
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [open]);
 
-  // Pas de panier flottant dans l'admin, ni sur les pages panier / commande
   if (!cart) return null;
+  // Masqué uniquement dans l'admin ; visible partout ailleurs, panier vide compris.
   if (pathname?.startsWith("/admin")) return null;
-  if (pathname === "/panier" || pathname?.startsWith("/commande")) return null;
 
   const { items, count, total, setQty, remove } = cart;
 
   return (
     <>
-      {/* Bouton flottant : visible seulement quand le panier n'est pas vide */}
-      {count > 0 && (
-        <button
-          type="button"
-          aria-label={`Ouvrir le panier (${count} article${count > 1 ? "s" : ""})`}
-          onClick={() => setOpen(true)}
-          style={{
-            position: "fixed",
-            right: 20,
-            bottom: 20,
-            zIndex: 1000,
-            width: 60,
-            height: 60,
-            borderRadius: "50%",
-            border: "none",
-            cursor: "pointer",
-            background: "var(--accent-dark, #b3261e)",
-            color: "#fff",
-            boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="9" cy="21" r="1" />
-            <circle cx="20" cy="21" r="1" />
-            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-          </svg>
+      {/* Bouton flottant : TOUJOURS visible (meme panier vide) */}
+      <button
+        type="button"
+        aria-label={count > 0 ? `Ouvrir le panier (${count} article${count > 1 ? "s" : ""})` : "Ouvrir le panier (vide)"}
+        onClick={() => setOpen(true)}
+        style={{
+          position: "fixed",
+          right: 20,
+          bottom: 20,
+          zIndex: 1000,
+          width: 60,
+          height: 60,
+          borderRadius: "50%",
+          border: "none",
+          cursor: "pointer",
+          background: "var(--accent-dark, #b3261e)",
+          color: "#fff",
+          boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="9" cy="21" r="1" />
+          <circle cx="20" cy="21" r="1" />
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+        </svg>
+        {count > 0 && (
           <span
             style={{
               position: "absolute",
@@ -83,10 +80,9 @@ export default function FloatingCart() {
           >
             {count}
           </span>
-        </button>
-      )}
+        )}
+      </button>
 
-      {/* Fond sombre */}
       <div
         onClick={() => setOpen(false)}
         style={{
@@ -100,7 +96,6 @@ export default function FloatingCart() {
         }}
       />
 
-      {/* Volet latéral */}
       <aside
         role="dialog"
         aria-label="Panier"
@@ -129,52 +124,42 @@ export default function FloatingCart() {
             borderBottom: "1px solid var(--line, #e2e6ea)",
           }}
         >
-          <strong style={{ fontSize: 17 }}>
-            Mon panier {count > 0 && `(${count})`}
-          </strong>
+          <strong style={{ fontSize: 17 }}>Mon panier {count > 0 && `(${count})`}</strong>
           <button
             type="button"
             aria-label="Fermer"
             onClick={() => setOpen(false)}
             style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", lineHeight: 1, color: "var(--steel, #64748b)" }}
           >
-            ×
+            &times;
           </button>
         </header>
 
         <div style={{ flex: 1, overflowY: "auto", padding: 12 }}>
           {items.length === 0 ? (
-            <p style={{ color: "var(--steel, #64748b)", textAlign: "center", marginTop: 32 }}>
-              Votre panier est vide.
-            </p>
+            <div style={{ textAlign: "center", marginTop: 40, color: "var(--steel, #64748b)" }}>
+              <p>Votre panier est vide.</p>
+              <Link href="/produits" onClick={() => setOpen(false)} style={{ color: "var(--accent-dark, #b3261e)", fontWeight: 600, textDecoration: "none" }}>
+                Parcourir le catalogue &rarr;
+              </Link>
+            </div>
           ) : (
             items.map((i) => (
               <div
                 key={i.product_id}
-                style={{
-                  display: "flex",
-                  gap: 10,
-                  padding: "10px 4px",
-                  borderBottom: "1px solid var(--line, #e2e6ea)",
-                }}
+                style={{ display: "flex", gap: 10, padding: "10px 4px", borderBottom: "1px solid var(--line, #e2e6ea)" }}
               >
                 <div
                   style={{
-                    width: 56,
-                    height: 56,
-                    flexShrink: 0,
-                    borderRadius: 6,
-                    background: "#f4f6f8",
-                    overflow: "hidden",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
+                    width: 56, height: 56, flexShrink: 0, borderRadius: 6,
+                    background: "#f4f6f8", overflow: "hidden",
+                    display: "flex", alignItems: "center", justifyContent: "center",
                   }}
                 >
                   {i.image ? (
                     <img src={i.image} alt={i.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   ) : (
-                    <span style={{ fontSize: 10, color: "var(--steel, #64748b)" }}>—</span>
+                    <span style={{ fontSize: 10, color: "var(--steel, #64748b)" }}>&mdash;</span>
                   )}
                 </div>
 
@@ -186,29 +171,13 @@ export default function FloatingCart() {
                   >
                     {i.title}
                   </Link>
-                  {i.reference && (
-                    <div style={{ fontSize: 11, color: "var(--steel, #64748b)" }}>RÉF {i.reference}</div>
-                  )}
+                  {i.reference && <div style={{ fontSize: 11, color: "var(--steel, #64748b)" }}>RÉF {i.reference}</div>}
 
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <button
-                        type="button"
-                        aria-label="Diminuer"
-                        onClick={() => setQty(i.product_id, i.quantity - 1)}
-                        style={qtyBtn}
-                      >
-                        −
-                      </button>
+                      <button type="button" aria-label="Diminuer" onClick={() => setQty(i.product_id, i.quantity - 1)} style={qtyBtn}>&minus;</button>
                       <span style={{ minWidth: 20, textAlign: "center", fontSize: 13 }}>{i.quantity}</span>
-                      <button
-                        type="button"
-                        aria-label="Augmenter"
-                        onClick={() => setQty(i.product_id, i.quantity + 1)}
-                        style={qtyBtn}
-                      >
-                        +
-                      </button>
+                      <button type="button" aria-label="Augmenter" onClick={() => setQty(i.product_id, i.quantity + 1)} style={qtyBtn}>+</button>
                     </div>
                     <strong style={{ fontSize: 13 }}>{formatPrice(i.price_cents * i.quantity)}</strong>
                   </div>
@@ -220,7 +189,7 @@ export default function FloatingCart() {
                   onClick={() => remove(i.product_id)}
                   style={{ background: "none", border: "none", cursor: "pointer", color: "var(--steel, #64748b)", fontSize: 18, alignSelf: "flex-start" }}
                 >
-                  ×
+                  &times;
                 </button>
               </div>
             ))
@@ -233,39 +202,8 @@ export default function FloatingCart() {
               <span>Sous-total</span>
               <strong>{formatPrice(total)}</strong>
             </div>
-            <Link
-              href="/commande"
-              onClick={() => setOpen(false)}
-              style={{
-                display: "block",
-                textAlign: "center",
-                padding: "12px 16px",
-                borderRadius: 6,
-                background: "var(--accent-dark, #b3261e)",
-                color: "#fff",
-                fontWeight: 600,
-                textDecoration: "none",
-              }}
-            >
-              Passer la commande
-            </Link>
-            <Link
-              href="/panier"
-              onClick={() => setOpen(false)}
-              style={{
-                display: "block",
-                textAlign: "center",
-                padding: "10px 16px",
-                marginTop: 8,
-                borderRadius: 6,
-                border: "1px solid var(--line, #e2e6ea)",
-                color: "inherit",
-                textDecoration: "none",
-                fontSize: 14,
-              }}
-            >
-              Voir le panier
-            </Link>
+            <Link href="/commande" onClick={() => setOpen(false)} style={primaryLink}>Passer la commande</Link>
+            <Link href="/panier" onClick={() => setOpen(false)} style={ghostLink}>Voir le panier</Link>
           </footer>
         )}
       </aside>
@@ -274,15 +212,16 @@ export default function FloatingCart() {
 }
 
 const qtyBtn = {
-  width: 26,
-  height: 26,
-  borderRadius: 4,
-  border: "1px solid var(--line, #e2e6ea)",
-  background: "#fff",
-  cursor: "pointer",
-  fontSize: 16,
-  lineHeight: 1,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
+  width: 26, height: 26, borderRadius: 4,
+  border: "1px solid var(--line, #e2e6ea)", background: "#fff",
+  cursor: "pointer", fontSize: 16, lineHeight: 1,
+  display: "flex", alignItems: "center", justifyContent: "center",
+};
+const primaryLink = {
+  display: "block", textAlign: "center", padding: "12px 16px", borderRadius: 6,
+  background: "var(--accent-dark, #b3261e)", color: "#fff", fontWeight: 600, textDecoration: "none",
+};
+const ghostLink = {
+  display: "block", textAlign: "center", padding: "10px 16px", marginTop: 8, borderRadius: 6,
+  border: "1px solid var(--line, #e2e6ea)", color: "inherit", textDecoration: "none", fontSize: 14,
 };

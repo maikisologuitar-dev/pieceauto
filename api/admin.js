@@ -1,27 +1,11 @@
 /**
  * admin.js — Routes back-office (montées sous /api/admin dans server.js)
- *
- * Auth : login par email/mot de passe (PBKDF2) -> renvoie un JWT signé
- * maison (HMAC-SHA256, sans dépendance externe). Le token est ensuite
- * exigé dans l'en-tête Authorization: Bearer <token> pour toutes les
- * routes /api/admin/* (sauf /login).
- *
- * Fonctionnalités :
- *   POST /api/admin/login
- *   GET  /api/admin/orders            liste des commandes
- *   GET  /api/admin/orders/:id        détail d'une commande + lignes
- *   PATCH /api/admin/orders/:id       change le statut
- *   GET  /api/admin/orders/:id/invoice  facture PDF (pdf-lib)
- *   GET  /api/admin/products          liste produits (pagination/recherche)
- *   PATCH /api/admin/products/:id     modifie prix / stock / textes
- *   GET  /api/admin/stats             quelques chiffres pour le dashboard
  */
 
 const crypto = require("crypto");
 const { PDFDocument, StandardFonts, rgb, PDFName, PDFString } = require("pdf-lib");
 
-// ---------- Annotation de lien cliquable (pdf-lib n'a pas d'API haut niveau) ----------
-// rect = [x1, y1, x2, y2] en coordonnées PDF (origine en bas à gauche)
+// ---------- Annotation de lien cliquable ----------
 function addLinkAnnotation(pdfDoc, page, rect, url) {
   const linkAnnot = pdfDoc.context.obj({
     Type: "Annot",
@@ -102,9 +86,6 @@ async function getPaymentSettings(pool) {
 }
 
 // ---------- Génération facture PDF ----------
-// `bank` (optionnel) : { agency_name, bank_name, account_holder, iban, bic }
-// Affiché en bas de facture pour que le client (ou l'admin qui la relit)
-// retrouve toujours l'agence et le RIB utilisés au moment de l'émission.
 async function buildInvoicePdf(order, items, bank = null) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([595, 842]); // A4
@@ -155,7 +136,7 @@ async function buildInvoicePdf(order, items, bank = null) {
   page.drawText("Total", { x: colX.total, y: y + 3, size: 9, font: bold, color: rgb(1, 1, 1) });
   y -= 22;
 
-  // Lignes
+  // Lignes articles
   let totalHT = 0;
   for (const it of items) {
     const lineTotal = it.unit_cents * it.quantity;
@@ -170,7 +151,23 @@ async function buildInvoicePdf(order, items, bank = null) {
     if (y < 120) { y = height - 60; pdf.addPage([595, 842]); }
   }
 
-  // Totaux (TVA 20 % incluse, prix TTC)
+  // MODIF LIVRAISON : ligne de frais de livraison (si des frais existent).
+  // Elle s'ajoute à totalHT comme un article.
+  const deliveryFee = Number(order.delivery_fee_cents) || 0;
+  if (deliveryFee > 0) {
+    const km = Number(order.delivery_km) || 0;
+    const label = km > 0 ? `Frais de livraison (${km.toFixed(1)} km)` : "Frais de livraison";
+    totalHT += deliveryFee;
+    page.drawText(label, { x: colX.desig, y, size: 9, font, color: dark });
+    page.drawText("-", { x: colX.ref, y, size: 9, font, color: gray });
+    page.drawText("1", { x: colX.qty, y, size: 9, font, color: dark });
+    page.drawText(euro(deliveryFee), { x: colX.pu, y, size: 9, font, color: dark });
+    page.drawText(euro(deliveryFee), { x: colX.total, y, size: 9, font, color: dark });
+    y -= 18;
+    if (y < 120) { y = height - 60; pdf.addPage([595, 842]); }
+  }
+
+  // Totaux (TVA 20 % incluse, prix TTC ; la livraison est comprise dans le TTC)
   y -= 10;
   page.drawLine({ start: { x: 380, y }, end: { x: 545, y }, thickness: 1, color: gray });
   y -= 18;
@@ -194,13 +191,6 @@ async function buildInvoicePdf(order, items, bank = null) {
   page.drawText("Merci de votre confiance. Facture à régler selon les modalités convenues.",
     { x: M, y, size: 9, font, color: gray });
 
-  // Mode de paiement actif AU MOMENT DE LA GÉNÉRATION de cette facture :
-  // - "lien"  -> lien de paiement cliquable (le RIB n'est pas affiché)
-  // - "rib" (ou valeur absente, compatibilité des anciennes factures) -> RIB
-  // Le mode est figé dans la facture : un changement ultérieur de l'admin
-  // n'affecte jamais une facture déjà générée/consultée à nouveau, puisque
-  // `bank` est relu depuis payment_settings à chaque appel de cette fonction
-  // au moment précis de la demande (voir routes appelantes).
   const mode = bank && bank.payment_mode === "lien" ? "lien" : "rib";
 
   if (mode === "lien" && bank && bank.payment_link_url) {
@@ -210,7 +200,6 @@ async function buildInvoicePdf(order, items, bank = null) {
     y -= 18;
     const label = bank.payment_link_label || "Payer";
     page.drawText(label, { x: M, y, size: 10, font: bold, color: rgb(0.06, 0.35, 0.75) });
-    // Zone cliquable posée directement sur le texte du lien
     const textWidth = bold.widthOfTextAtSize(label, 10);
     addLinkAnnotation(pdf, page, [M, y - 3, M + textWidth, y + 11], bank.payment_link_url);
     y -= 15;
@@ -221,7 +210,6 @@ async function buildInvoicePdf(order, items, bank = null) {
       { x: M, y, size: 8, font, color: gray }
     );
   } else if (bank && (bank.agency_name || bank.iban || bank.bank_name)) {
-    // Coordonnées bancaires (agence + RIB) — pour le règlement par virement.
     y -= 26;
     page.drawLine({ start: { x: M, y: y + 14 }, end: { x: 545, y: y + 14 }, thickness: 1, color: gray });
     page.drawText("Coordonnées bancaires (virement)", { x: M, y, size: 10, font: bold, color: dark });
@@ -244,7 +232,6 @@ async function buildInvoicePdf(order, items, bank = null) {
 
 // ---------- Montage des routes ----------
 module.exports = function registerAdminRoutes(app, pool) {
-  // Middleware d'authentification
   function requireAuth(req, res, next) {
     const header = req.headers.authorization || "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : null;
@@ -419,14 +406,8 @@ module.exports = function registerAdminRoutes(app, pool) {
       res.status(500).json({ error: e.message });
     }
   });
-  // ================================================================== //
-  //  AJOUT CHANTIER 3 — création de produit + listes pour le formulaire
-  //  À insérer DANS la fonction registerAdminRoutes(app, pool),
-  //  par exemple juste avant la ligne finale "};".
-  //  (Les helpers requireAuth et pool sont déjà disponibles dans ce scope.)
-  // ================================================================== //
 
-  // slugify stable (accents retirés, espaces -> tirets)
+  // slugify stable
   function slugifyProduct(name) {
     return String(name || "")
       .normalize("NFD")
@@ -436,12 +417,9 @@ module.exports = function registerAdminRoutes(app, pool) {
       .replace(/^-+|-+$/g, "");
   }
 
-  // Garantit un slug unique : base, base-2, base-3, …
   async function uniqueSlug(client, base) {
     let slug = base || "produit";
     let n = 1;
-    // on boucle tant qu'un produit porte déjà ce slug
-    // (dans une transaction, donc lecture cohérente)
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const r = await client.query("SELECT 1 FROM products WHERE slug = $1", [slug]);
@@ -451,7 +429,6 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   }
 
-  // --- Toutes les catégories (pour le formulaire : sans filtre HAVING) ---
   app.get("/api/admin/categories", requireAuth, async (_req, res) => {
     try {
       const r = await pool.query(
@@ -467,7 +444,6 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
-  // --- Marques existantes (suggestions pour le formulaire) ---
   app.get("/api/admin/brands", requireAuth, async (_req, res) => {
     try {
       const r = await pool.query(
@@ -483,26 +459,16 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
-  // --- Création d'un produit (titre, marque, prix, stock, catégories, images) ---
   app.post("/api/admin/products", requireAuth, async (req, res) => {
     const {
-      title,
-      brand,
-      reference,
-      price_eur,
-      currency,
-      stock_status,
-      short_desc,
-      long_desc,
-      category_ids,
-      images,
+      title, brand, reference, price_eur, currency, stock_status,
+      short_desc, long_desc, category_ids, images,
     } = req.body || {};
 
     if (!title || !String(title).trim()) {
       return res.status(400).json({ error: "Le titre est obligatoire." });
     }
 
-    // Prix : euros -> centimes (0 accepté = « Prix sur demande »)
     let priceCents = 0;
     if (price_eur !== undefined && price_eur !== null && price_eur !== "") {
       priceCents = Math.round(Number(String(price_eur).replace(",", ".")) * 100);
@@ -512,22 +478,17 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
 
     const stock = ["en_stock", "rupture", "sur_commande"].includes(stock_status)
-      ? stock_status
-      : "en_stock";
+      ? stock_status : "en_stock";
 
     const cats = Array.isArray(category_ids)
-      ? category_ids.map((x) => parseInt(x)).filter((x) => Number.isInteger(x))
-      : [];
+      ? category_ids.map((x) => parseInt(x)).filter((x) => Number.isInteger(x)) : [];
     const imgs = Array.isArray(images)
-      ? images.map((u) => String(u).trim()).filter(Boolean)
-      : [];
+      ? images.map((u) => String(u).trim()).filter(Boolean) : [];
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-
       const slug = await uniqueSlug(client, slugifyProduct(title));
-
       const ins = await client.query(
         `INSERT INTO products
            (slug, title, reference, brand, price_cents, currency, short_desc, long_desc,
@@ -535,28 +496,22 @@ module.exports = function registerAdminRoutes(app, pool) {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'[]'::jsonb,$9, now())
          RETURNING id, slug`,
         [
-          slug,
-          String(title).trim(),
+          slug, String(title).trim(),
           reference ? String(reference).trim() : null,
           brand ? String(brand).trim() : null,
-          priceCents,
-          (currency || "EUR").toUpperCase(),
+          priceCents, (currency || "EUR").toUpperCase(),
           short_desc ? String(short_desc) : null,
           long_desc ? String(long_desc) : null,
           stock,
         ]
       );
       const productId = ins.rows[0].id;
-
-      // Images
       for (let i = 0; i < imgs.length; i++) {
         await client.query(
           `INSERT INTO product_images (product_id, url, "position") VALUES ($1,$2,$3)`,
           [productId, imgs[i], i]
         );
       }
-
-      // Catégories (liens idempotents)
       for (const cid of cats) {
         await client.query(
           `INSERT INTO product_categories (product_id, category_id)
@@ -564,7 +519,6 @@ module.exports = function registerAdminRoutes(app, pool) {
           [productId, cid]
         );
       }
-
       await client.query("COMMIT");
       res.status(201).json({ id: productId, slug: ins.rows[0].slug });
     } catch (e) {
@@ -574,19 +528,6 @@ module.exports = function registerAdminRoutes(app, pool) {
       client.release();
     }
   });
-  // ================================================================== //
-  //  AJOUT — Upload d'images vers Cloudinary (via l'API, authentifié)
-  //  À insérer DANS registerAdminRoutes(app, pool), avant le "};" final.
-  //
-  //  Prérequis :
-  //    - npm install multer   (dans le dossier api/)
-  //    - cloudinary déjà installé
-  //    - variables d'env sur Railway :
-  //        CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
-  //
-  //  Ces require/const peuvent être placés en haut de admin.js à côté des
-  //  autres require ; ils sont mis ici pour que le bloc soit auto-contenu.
-  // ================================================================== //
 
   const multer = require("multer");
   const cloudinary = require("cloudinary").v2;
@@ -597,7 +538,6 @@ module.exports = function registerAdminRoutes(app, pool) {
     api_secret: process.env.CLOUDINARY_API_SECRET,
   });
 
-  // Fichiers gardés en mémoire (pas d'écriture disque), limite 8 Mo, images seules
   const uploadMem = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 8 * 1024 * 1024, files: 8 },
@@ -607,7 +547,6 @@ module.exports = function registerAdminRoutes(app, pool) {
     },
   });
 
-  // Envoie un buffer vers Cloudinary et renvoie l'URL sécurisée
   function uploadBufferToCloudinary(buffer) {
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
@@ -618,7 +557,6 @@ module.exports = function registerAdminRoutes(app, pool) {
     });
   }
 
-  // POST /api/admin/upload  (champ "files", multipart/form-data)
   app.post("/api/admin/upload", requireAuth, (req, res) => {
     uploadMem.array("files", 8)(req, res, async (mErr) => {
       if (mErr) return res.status(400).json({ error: mErr.message });
@@ -639,12 +577,7 @@ module.exports = function registerAdminRoutes(app, pool) {
       }
     });
   });
-  // ================================================================== //
-  //  AJOUT — Gestion des images d'un produit existant
-  //  À insérer DANS registerAdminRoutes(app, pool), avant le "};" final.
-  // ================================================================== //
 
-  // --- Lire les images actuelles d'un produit ---
   app.get("/api/admin/products/:id/images", requireAuth, async (req, res) => {
     try {
       const r = await pool.query(
@@ -657,27 +590,20 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
-  // --- Remplacer TOUTES les images d'un produit ---
-  // Body : { images: ["https://…", …] }  (l'ordre est conservé)
   app.put("/api/admin/products/:id/images", requireAuth, async (req, res) => {
     const { images } = req.body || {};
     if (!Array.isArray(images)) {
       return res.status(400).json({ error: "Le champ 'images' doit être un tableau." });
     }
     const urls = images.map((u) => String(u).trim()).filter(Boolean);
-
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-
-      // le produit existe-t-il ?
       const p = await client.query("SELECT id FROM products WHERE id = $1", [req.params.id]);
       if (!p.rows.length) {
         await client.query("ROLLBACK");
         return res.status(404).json({ error: "Produit introuvable" });
       }
-
-      // on repart de zéro puis on réinsère dans l'ordre
       await client.query("DELETE FROM product_images WHERE product_id = $1", [req.params.id]);
       for (let i = 0; i < urls.length; i++) {
         await client.query(
@@ -685,9 +611,7 @@ module.exports = function registerAdminRoutes(app, pool) {
           [req.params.id, urls[i], i]
         );
       }
-      // garder products.updated_at cohérent
       await client.query("UPDATE products SET updated_at = now() WHERE id = $1", [req.params.id]);
-
       await client.query("COMMIT");
       res.json({ id: Number(req.params.id), images: urls });
     } catch (e) {
@@ -698,12 +622,6 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
-  // ================================================================== //
-  //  AJOUT — Catégories d'un produit existant (lecture + remplacement)
-  //  À insérer DANS registerAdminRoutes(app, pool), avant le "};" final.
-  // ================================================================== //
-
-  // --- Lire les catégories d'un produit ---
   app.get("/api/admin/products/:id/categories", requireAuth, async (req, res) => {
     try {
       const r = await pool.query(
@@ -720,27 +638,20 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
-  // --- Remplacer TOUTES les catégories d'un produit ---
-  // Body : { category_ids: [1, 4, 9] }
   app.put("/api/admin/products/:id/categories", requireAuth, async (req, res) => {
     const { category_ids } = req.body || {};
     if (!Array.isArray(category_ids)) {
       return res.status(400).json({ error: "Le champ 'category_ids' doit être un tableau." });
     }
-    const ids = category_ids
-      .map((x) => parseInt(x))
-      .filter((x) => Number.isInteger(x));
-
+    const ids = category_ids.map((x) => parseInt(x)).filter((x) => Number.isInteger(x));
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-
       const p = await client.query("SELECT id FROM products WHERE id = $1", [req.params.id]);
       if (!p.rows.length) {
         await client.query("ROLLBACK");
         return res.status(404).json({ error: "Produit introuvable" });
       }
-
       await client.query("DELETE FROM product_categories WHERE product_id = $1", [req.params.id]);
       for (const cid of ids) {
         await client.query(
@@ -749,7 +660,6 @@ module.exports = function registerAdminRoutes(app, pool) {
           [req.params.id, cid]
         );
       }
-
       await client.query("COMMIT");
       res.json({ id: Number(req.params.id), category_ids: ids });
     } catch (e) {
@@ -760,12 +670,6 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
-  // ================================================================== //
-  // fin routes catégories
-
-
-  // --- Mise à jour de l'image d'ambiance d'un rayon ---
-  // Body : { image_url: "https://…" | null }
   app.patch("/api/admin/categories/:id", requireAuth, async (req, res) => {
     const { image_url } = req.body || {};
     try {
@@ -781,12 +685,6 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
-
-  // ================================================================== //
-  //  AJOUT — Coordonnées bancaires (RIB) affichées au client + factures
-  // ================================================================== //
-
-  // --- Lire les coordonnées bancaires actuelles ---
   app.get("/api/admin/payment-info", requireAuth, async (_req, res) => {
     try {
       const bank = await getPaymentSettings(pool);
@@ -796,14 +694,6 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
-  // --- Mettre à jour les coordonnées bancaires ET/OU le lien de paiement ---
-  // Body : { payment_mode: "rib"|"lien", bank_name, agency_name, account_holder,
-  //          iban, bic, payment_link_url, payment_link_label }
-  // `payment_mode` détermine ce qui est montré au client et sur les FUTURES
-  // factures (celles déjà émises ne changent pas rétroactivement, voir
-  // buildInvoicePdf). Les deux jeux de champs (RIB et lien) sont conservés en
-  // base même quand ils ne sont pas actifs, pour basculer sans ressaisir :
-  // l'admin peut préparer le lien pendant qu'il est en mode RIB, par exemple.
   app.put("/api/admin/payment-info", requireAuth, async (req, res) => {
     const {
       payment_mode, bank_name, agency_name, account_holder, iban, bic,
@@ -813,15 +703,11 @@ module.exports = function registerAdminRoutes(app, pool) {
     if (payment_mode && !["rib", "lien"].includes(payment_mode)) {
       return res.status(400).json({ error: "payment_mode doit être 'rib' ou 'lien'." });
     }
-    // Si on active le mode lien, le lien doit être renseigné (sinon la facture
-    // n'aurait rien à afficher). On ne bloque pas le mode 'rib'.
     if (payment_mode === "lien" && !payment_link_url) {
       return res.status(400).json({ error: "Un lien de paiement est requis pour activer ce mode." });
     }
 
     try {
-      // On ne touche que les colonnes explicitement fournies, pour permettre
-      // de changer uniquement le mode sans re-poster tous les champs RIB.
       const current = await getPaymentSettings(pool);
       const next = {
         payment_mode: payment_mode !== undefined ? payment_mode : (current?.payment_mode || "rib"),
@@ -861,10 +747,6 @@ module.exports = function registerAdminRoutes(app, pool) {
     }
   });
 
-  // --- Suppression d'un produit ---
-  // Les images et liens catégories partent en cascade (FK ON DELETE CASCADE).
-  // Les lignes de commande existantes gardent leur copie (FK ON DELETE SET NULL),
-  // donc l'historique et les factures restent intacts.
   app.delete("/api/admin/products/:id", requireAuth, async (req, res) => {
     try {
       const r = await pool.query(
@@ -881,5 +763,4 @@ module.exports = function registerAdminRoutes(app, pool) {
 };
 // ---------------------------------------------------------------- //
 // Export de la génération PDF pour réutilisation côté public
-// (server.js l'utilise pour le reçu client, sans dupliquer le code).
 module.exports.buildInvoicePdf = buildInvoicePdf;
