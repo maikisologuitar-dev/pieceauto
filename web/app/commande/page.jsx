@@ -1,11 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "@/components/CartProvider";
 import { createOrder } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
-import { computeDelivery, DELIVERY_RATE_PER_KM } from "@/lib/delivery";
+import { computeDelivery } from "@/lib/delivery";
 
 export default function CheckoutPage() {
   const cart = useCart();
@@ -18,10 +18,39 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // --- Livraison ---
+  // --- Livraison (calcul AUTOMATIQUE) ---
   const [delivery, setDelivery] = useState(null); // { km, feeCents }
   const [deliveryLoading, setDeliveryLoading] = useState(false);
   const [deliveryErr, setDeliveryErr] = useState("");
+  const debounceRef = useRef(null);
+
+  const addressComplete = form.address_line && form.postal_code && form.city;
+
+  // Recalcule automatiquement les frais dès que l'adresse est complète,
+  // avec un petit délai (debounce) pour ne pas géocoder à chaque frappe.
+  useEffect(() => {
+    if (!addressComplete) {
+      setDelivery(null);
+      setDeliveryErr("");
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setDeliveryLoading(true);
+      setDeliveryErr("");
+      try {
+        const res = await computeDelivery(form);
+        setDelivery(res);
+      } catch (e) {
+        setDeliveryErr(e.message || "Impossible de calculer la livraison.");
+        setDelivery(null);
+      } finally {
+        setDeliveryLoading(false);
+      }
+    }, 900);
+    return () => debounceRef.current && clearTimeout(debounceRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.address_line, form.postal_code, form.city]);
 
   if (!cart) return null;
   if (!cart.items.length) {
@@ -35,36 +64,7 @@ export default function CheckoutPage() {
     );
   }
 
-  const set = (k) => (e) => {
-    setForm((f) => ({ ...f, [k]: e.target.value }));
-    // Une modification d'adresse invalide le calcul de livraison précédent.
-    if (["address_line", "postal_code", "city"].includes(k)) {
-      setDelivery(null);
-      setDeliveryErr("");
-    }
-  };
-
-  const addressComplete = form.address_line && form.postal_code && form.city;
-
-  async function calcDelivery() {
-    setDeliveryErr("");
-    if (!addressComplete) {
-      setDeliveryErr("Renseignez d'abord l'adresse, le code postal et la ville.");
-      return null;
-    }
-    setDeliveryLoading(true);
-    try {
-      const res = await computeDelivery(form);
-      setDelivery(res);
-      return res;
-    } catch (e) {
-      setDeliveryErr(e.message || "Impossible de calculer la livraison.");
-      setDelivery(null);
-      return null;
-    } finally {
-      setDeliveryLoading(false);
-    }
-  }
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const deliveryFeeCents = delivery?.feeCents ?? 0;
   const grandTotal = cart.total + deliveryFeeCents;
@@ -77,11 +77,17 @@ export default function CheckoutPage() {
     }
     setSubmitting(true);
 
-    // La livraison doit être incluse : on la calcule si ce n'est pas déjà fait.
+    // La livraison doit être incluse : si le calcul auto n'a pas encore abouti,
+    // on le lance une dernière fois avant d'enregistrer.
     let del = delivery;
     if (!del) {
-      del = await calcDelivery();
-      if (!del) { setSubmitting(false); return; }
+      try {
+        del = await computeDelivery(form);
+      } catch (e) {
+        setError("Impossible de calculer la livraison : " + (e.message || "adresse invalide."));
+        setSubmitting(false);
+        return;
+      }
     }
     const feeCents = del.feeCents;
 
@@ -90,33 +96,10 @@ export default function CheckoutPage() {
         customer: form,
         payment_method: payment,
         note: form.note,
-        // On transmet aussi la livraison à l'API (ignorée si non gérée côté serveur).
         delivery_km: del.km,
         delivery_fee_cents: feeCents,
         items: cart.items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
       });
-
-      // --- Snapshot de la facture (généré côté front) ---
-      const invoice = {
-        order_number: res.order_number,
-        date: new Date().toISOString(),
-        customer: { ...form },
-        items: cart.items.map((i) => ({
-          title: i.title,
-          reference: i.reference,
-          slug: i.slug,
-          price_cents: i.price_cents,
-          quantity: i.quantity,
-        })),
-        subtotal_cents: cart.total,
-        delivery_km: del.km,
-        delivery_fee_cents: feeCents,
-        total_cents: cart.total + feeCents,
-        payment_method: payment,
-      };
-      try {
-        sessionStorage.setItem(`invoice:${res.order_number}`, JSON.stringify(invoice));
-      } catch {}
 
       cart.clear();
       const params = new URLSearchParams({ n: res.order_number });
@@ -142,22 +125,6 @@ export default function CheckoutPage() {
           <div className="full"><label>Remarque (facultatif)</label><textarea rows={3} value={form.note} onChange={set("note")} /></div>
         </div>
 
-        <h2 className="section-title" style={{ marginTop: 30, fontSize: 20 }}>Livraison</h2>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <button type="button" className="btn-add btn-add--ghost" onClick={calcDelivery} disabled={deliveryLoading || !addressComplete}>
-            {deliveryLoading ? "Calcul…" : "Calculer les frais de livraison"}
-          </button>
-          <span style={{ color: "var(--steel, #64748b)", fontSize: 13 }}>
-            Tarif : {formatPrice(Math.round(DELIVERY_RATE_PER_KM * 100))}/km
-          </span>
-        </div>
-        {deliveryErr && <p style={{ color: "var(--accent-dark)", marginTop: 8, fontWeight: 600 }}>{deliveryErr}</p>}
-        {delivery && (
-          <p style={{ marginTop: 8 }}>
-            Distance estimée : <strong>{delivery.km.toFixed(1)} km</strong> — Frais : <strong>{formatPrice(delivery.feeCents)}</strong>
-          </p>
-        )}
-
         <h2 className="section-title" style={{ marginTop: 30, fontSize: 20 }}>Mode de règlement</h2>
         <div className="payment-options">
           <label>
@@ -173,9 +140,24 @@ export default function CheckoutPage() {
 
         <div className="cart-total" style={{ lineHeight: 1.8 }}>
           <div>Sous-total : {formatPrice(cart.total)}</div>
-          <div>Livraison : {delivery ? formatPrice(deliveryFeeCents) : "à calculer"}</div>
+          <div>
+            Livraison :{" "}
+            {deliveryLoading
+              ? "calcul en cours…"
+              : delivery
+              ? `${formatPrice(deliveryFeeCents)} (${delivery.km.toFixed(1)} km)`
+              : deliveryErr
+              ? "à confirmer"
+              : "renseignez votre adresse"}
+          </div>
           <div><strong>Total : {formatPrice(grandTotal) || "sur devis"}</strong></div>
         </div>
+
+        {deliveryErr && (
+          <p style={{ color: "var(--accent-dark)", marginTop: 8, fontSize: 13 }}>
+            {deliveryErr} La commande reste possible ; les frais seront ajustés si besoin.
+          </p>
+        )}
 
         {error && <p style={{ color: "var(--accent-dark)", marginTop: 12, fontWeight: 600 }}>{error}</p>}
         <button

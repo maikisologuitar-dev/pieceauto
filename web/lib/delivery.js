@@ -1,7 +1,6 @@
 // Frais de livraison calculés côté client : distance boutique -> adresse client x tarif au km.
 //
 // Coordonnées de la boutique = celles de ton point Google Maps (Auto Pièce Corse, Bastia).
-// Si tu déplaces la boutique, mets à jour SHOP.lat / SHOP.lng ici.
 export const SHOP = {
   name: "Auto Pièce Corse",
   lat: 42.7040265,
@@ -25,20 +24,36 @@ export function haversineKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-// Géocodage gratuit via Nominatim (OpenStreetMap), sans clé API.
-// Convertit l'adresse saisie en coordonnées.
-export async function geocodeAddress({ address_line, postal_code, city }) {
-  const q = [address_line, postal_code, city, "France"].filter(Boolean).join(", ");
+// Appel Nominatim pour une requête texte donnée. Renvoie {lat,lng} ou null.
+async function nominatim(q) {
   const url =
-    "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
+    "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=fr&q=" +
     encodeURIComponent(q);
   const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error("Service de géolocalisation indisponible.");
+  if (!res.ok) return null;
   const data = await res.json();
-  if (!Array.isArray(data) || data.length === 0) {
-    throw new Error("Adresse introuvable. Vérifiez l'adresse, le code postal et la ville.");
-  }
+  if (!Array.isArray(data) || data.length === 0) return null;
   return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+}
+
+// Géocodage TOLÉRANT : on tente l'adresse complète, puis on retombe
+// progressivement sur des requêtes moins précises jusqu'à trouver un lieu.
+// L'ordre garantit qu'on utilise l'info la plus précise disponible.
+export async function geocodeAddress({ address_line, postal_code, city }) {
+  const attempts = [
+    [address_line, postal_code, city, "France"],       // adresse complète
+    [postal_code, city, "France"],                     // code postal + ville
+    [city, "France"],                                  // ville seule
+    [postal_code, "France"],                           // code postal seul
+  ];
+
+  for (const parts of attempts) {
+    const q = parts.filter(Boolean).join(", ");
+    if (!q) continue;
+    const hit = await nominatim(q);
+    if (hit) return hit;
+  }
+  throw new Error("Adresse introuvable. Vérifiez le code postal et la ville.");
 }
 
 // Renvoie { km, feeCents } pour une adresse client.
