@@ -3,6 +3,7 @@ import CartProvider from "@/components/CartProvider";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LocationMap from "@/components/LocationMap";
+import FloatingCart from "@/components/FloatingCart";
 
 export const metadata = {
   title: "PiècesAuto — Pièces et équipement automobile",
@@ -19,6 +20,7 @@ export default function RootLayout({ children }) {
           <main>{children}</main>
           <LocationMap />
           <Footer />
+          <FloatingCart />
         </CartProvider>
       </body>
     </html>
