@@ -2,6 +2,7 @@ import "./globals.css";
 import CartProvider from "@/components/CartProvider";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import LocationMap from "@/components/LocationMap";
 
 export const metadata = {
   title: "PiècesAuto — Pièces et équipement automobile",
@@ -16,6 +17,7 @@ export default function RootLayout({ children }) {
         <CartProvider>
           <Header />
           <main>{children}</main>
+          <LocationMap />
           <Footer />
         </CartProvider>
       </body>
