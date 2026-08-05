@@ -29,6 +29,7 @@ export default function AdminShell({ children }) {
           <Link href="/admin/commandes">Commandes</Link>
           <Link href="/admin/produits">Produits</Link>
           <Link href="/admin/rayons">Rayons</Link>
+          <Link href="/admin/reglages">Réglages</Link>
           <Link href="/admin/parametres">Paramètres</Link>
         </nav>
         <div className="spacer" />
