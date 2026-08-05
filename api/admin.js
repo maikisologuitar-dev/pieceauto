@@ -817,5 +817,63 @@ module.exports = function registerAdminRoutes(app, pool) {
 
 };
 // ---------------------------------------------------------------- //
+  // Réglages entreprise (table clé/valeur `settings`).
+  // GET  renvoie un objet { siret: "...", ... }
+  // PUT  accepte un objet partiel et met à jour les clés fournies.
+  // ---------------------------------------------------------------- //
+  app.get("/api/admin/settings", requireAuth, async (_req, res) => {
+    try {
+      const r = await pool.query("SELECT key, value FROM settings");
+      const out = {};
+      for (const row of r.rows) out[row.key] = row.value;
+      res.json(out);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/admin/settings", requireAuth, async (req, res) => {
+    const body = req.body || {};
+    // Liste blanche des clés autorisées (évite d'écrire n'importe quoi).
+    const ALLOWED = ["siret"];
+    const entries = Object.entries(body).filter(([k]) => ALLOWED.includes(k));
+    if (!entries.length) {
+      return res.status(400).json({ error: "Aucun réglage valide à enregistrer." });
+    }
+
+    // Validation SIRET : vide autorisé, sinon exactement 14 chiffres.
+    for (const [k, v] of entries) {
+      if (k === "siret" && v) {
+        const digits = String(v).replace(/\s/g, "");
+        if (!/^\d{14}$/.test(digits)) {
+          return res.status(400).json({ error: "Le SIRET doit comporter 14 chiffres." });
+        }
+      }
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const [k, v] of entries) {
+        const clean = k === "siret" ? String(v).replace(/\s/g, "") : v;
+        await client.query(
+          `INSERT INTO settings (key, value) VALUES ($1, $2)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+          [k, clean]
+        );
+      }
+      await client.query("COMMIT");
+      const r = await client.query("SELECT key, value FROM settings");
+      const out = {};
+      for (const row of r.rows) out[row.key] = row.value;
+      res.json(out);
+    } catch (e) {
+      await client.query("ROLLBACK");
+      res.status(500).json({ error: e.message });
+    } finally {
+      client.release();
+    }
+  });
+// ---------------------------------------------------------------- //
 // Export de la génération PDF pour réutilisation côté public
 module.exports.buildInvoicePdf = buildInvoicePdf;

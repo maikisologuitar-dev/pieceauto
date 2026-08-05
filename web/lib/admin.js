@@ -174,3 +174,17 @@ export async function updatePaymentInfo(patch) {
   if (!r.ok) throw new Error(data.error || "Échec de la mise à jour des coordonnées bancaires");
   return data;
 }
+// --- Réglages entreprise (SIRET, etc.) ---
+export async function getSettings() {
+  const r = await authFetch("/api/admin/settings");
+  return r.json();
+}
+export async function updateSettings(patch) {
+  const r = await authFetch("/api/admin/settings", {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || "Échec de l'enregistrement des réglages");
+  return data;
+}
