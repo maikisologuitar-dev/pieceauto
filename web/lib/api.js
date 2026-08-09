@@ -1,4 +1,4 @@
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/+$/, "");
 
 export async function getProducts({ page = 1, q = "", category = "", brand = "", sort = "" } = {}) {
   const params = new URLSearchParams({ page: String(page), limit: "12" });
