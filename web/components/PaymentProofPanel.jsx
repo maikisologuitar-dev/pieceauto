@@ -137,7 +137,6 @@ export default function PaymentProofPanel({ orderNumber, token, bank }) {
 
           <div style={{ marginTop: 10 }}>
             <CopyField label="Agence" value={bank.agency_name} />
-            <CopyField label="Banque" value={bank.bank_name} />
             <CopyField label="Titulaire du compte" value={bank.account_holder} />
             <CopyField label="IBAN" value={bank.iban} />
             <CopyField label="BIC" value={bank.bic} />
