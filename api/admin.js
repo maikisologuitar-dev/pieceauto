@@ -703,6 +703,77 @@ module.exports = function registerAdminRoutes(app, pool) {
   });
 
 
+  // --- Paramètres de paiement (RIB / lien), affichés au client ---
+  app.get("/api/admin/payment-info", requireAuth, async (_req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT payment_mode, agency_name, account_holder, iban, bic,
+                payment_link_url, payment_link_label
+         FROM payment_settings WHERE id = 1`
+      );
+      res.json(r.rows[0] || {});
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/admin/payment-info", requireAuth, async (req, res) => {
+    const {
+      payment_mode, agency_name, account_holder, iban, bic,
+      payment_link_url, payment_link_label,
+    } = req.body || {};
+    try {
+      const r = await pool.query(
+        `INSERT INTO payment_settings
+           (id, payment_mode, agency_name, account_holder, iban, bic,
+            payment_link_url, payment_link_label)
+         VALUES (1, $1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO UPDATE SET
+           payment_mode = EXCLUDED.payment_mode,
+           agency_name = EXCLUDED.agency_name,
+           account_holder = EXCLUDED.account_holder,
+           iban = EXCLUDED.iban,
+           bic = EXCLUDED.bic,
+           payment_link_url = EXCLUDED.payment_link_url,
+           payment_link_label = EXCLUDED.payment_link_label
+         RETURNING payment_mode, agency_name, account_holder, iban, bic,
+                   payment_link_url, payment_link_label`,
+        [
+          payment_mode || "rib", agency_name || null, account_holder || null,
+          iban || null, bic || null, payment_link_url || null, payment_link_label || null,
+        ]
+      );
+      res.json(r.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Réglages entreprise (SIRET, etc.) ---
+  app.get("/api/admin/settings", requireAuth, async (_req, res) => {
+    try {
+      const r = await pool.query("SELECT siret FROM settings WHERE id = 1");
+      res.json(r.rows[0] || { siret: "" });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/admin/settings", requireAuth, async (req, res) => {
+    const { siret } = req.body || {};
+    try {
+      const r = await pool.query(
+        `INSERT INTO settings (id, siret) VALUES (1, $1)
+         ON CONFLICT (id) DO UPDATE SET siret = EXCLUDED.siret
+         RETURNING siret`,
+        [siret || null]
+      );
+      res.json(r.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // --- Suppression d'un produit ---
   // Les images et liens catégories partent en cascade (FK ON DELETE CASCADE).
   // Les lignes de commande existantes gardent leur copie (FK ON DELETE SET NULL),

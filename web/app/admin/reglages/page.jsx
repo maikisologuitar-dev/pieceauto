@@ -41,50 +41,56 @@ export default function AdminReglages() {
   return (
     <>
       <h1 className="admin-h1">Réglages</h1>
-      <p style={{ color: "var(--steel)", fontSize: 14, marginTop: -4 }}>
-        Informations légales de l'entreprise, utilisées sur les documents et le site.
-      </p>
 
-      {err && <p style={{ color: "var(--accent-dark, #b3261e)", fontWeight: 600 }}>{err}</p>}
+      <div className="admin-card">
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, textTransform: "uppercase", margin: "0 0 4px" }}>
+          Informations légales
+        </h2>
+        <p style={{ color: "var(--steel)", fontSize: 14, margin: "0 0 20px" }}>
+          Utilisées sur les documents et le site.
+        </p>
 
-      {loading ? (
-        <p style={{ color: "var(--steel)" }}>Chargement…</p>
-      ) : (
-        <div style={{ marginTop: 20, maxWidth: 420 }}>
-          <label style={{ fontWeight: 600, fontSize: 14, display: "block", marginBottom: 6 }}>
-            Numéro SIRET
-          </label>
-          <input
-            style={field}
-            value={siret}
-            onChange={(e) => { setSiret(e.target.value); setOk(false); }}
-            placeholder="14 chiffres"
-            inputMode="numeric"
-          />
-          <div style={{ fontSize: 13, marginTop: 6, minHeight: 18 }}>
-            {siret && !validSiret ? (
-              <span style={{ color: "var(--accent-dark, #b3261e)" }}>
-                Le SIRET doit comporter 14 chiffres ({digits.length}/14).
-              </span>
-            ) : (
-              <span style={{ color: "var(--steel)" }}>
-                SIREN (9) + NIC (5) = 14 chiffres. Peut rester vide.
-              </span>
-            )}
+        {err && <p style={{ color: "var(--accent-dark)", fontWeight: 600, marginBottom: 16 }}>{err}</p>}
+
+        {loading ? (
+          <p style={{ color: "var(--steel)" }}>Chargement…</p>
+        ) : (
+          <div>
+            <label style={{ fontWeight: 600, fontSize: 14, display: "block", marginBottom: 6 }}>
+              Numéro SIRET
+            </label>
+            <input
+              style={field}
+              value={siret}
+              onChange={(e) => { setSiret(e.target.value); setOk(false); }}
+              placeholder="14 chiffres"
+              inputMode="numeric"
+            />
+            <div style={{ fontSize: 13, marginTop: 6, minHeight: 18 }}>
+              {siret && !validSiret ? (
+                <span style={{ color: "var(--accent-dark)" }}>
+                  Le SIRET doit comporter 14 chiffres ({digits.length}/14).
+                </span>
+              ) : (
+                <span style={{ color: "var(--steel)" }}>
+                  SIREN (9) + NIC (5) = 14 chiffres. Peut rester vide.
+                </span>
+              )}
+            </div>
+
+            <div style={{ marginTop: 20, display: "flex", gap: 12, alignItems: "center" }}>
+              <button
+                className="admin-btn primary"
+                onClick={save}
+                disabled={saving || !validSiret}
+              >
+                {saving ? "Enregistrement…" : "Enregistrer"}
+              </button>
+              {ok && <span style={{ color: "var(--ok)", fontWeight: 600, fontSize: 14 }}>✓ Enregistré</span>}
+            </div>
           </div>
-
-          <div style={{ marginTop: 16, display: "flex", gap: 10, alignItems: "center" }}>
-            <button
-              className="admin-btn primary"
-              onClick={save}
-              disabled={saving || !validSiret}
-            >
-              {saving ? "Enregistrement…" : "Enregistrer"}
-            </button>
-            {ok && <span style={{ color: "#0f7b3f", fontWeight: 600, fontSize: 14 }}>✓ Enregistré</span>}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </>
   );
 }

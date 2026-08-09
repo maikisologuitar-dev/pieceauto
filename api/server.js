@@ -41,6 +41,12 @@ const pool = new Pool(
 
 const PORT = Number(process.env.PORT || 4000);
 
+// Table des réglages entreprise (SIRET, etc.), créée au démarrage si absente
+// (une seule ligne, id fixe = 1, même schéma singleton que payment_settings).
+pool
+  .query(`CREATE TABLE IF NOT EXISTS settings (id INT PRIMARY KEY DEFAULT 1, siret TEXT)`)
+  .catch((e) => console.error("[settings] création table impossible :", e.message));
+
 // Routes back-office (login, commandes, produits, factures PDF)
 const registerAdminRoutes = require("./admin");
 registerAdminRoutes(app, pool);

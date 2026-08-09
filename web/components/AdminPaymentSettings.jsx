@@ -14,7 +14,6 @@ import { getAdminPaymentInfo, updatePaymentInfo } from "@/lib/admin";
 
 const EMPTY = {
   payment_mode: "rib",
-  bank_name: "",
   agency_name: "",
   account_holder: "",
   iban: "",
@@ -37,7 +36,6 @@ export default function AdminPaymentSettings() {
         if (!alive) return;
         setForm({
           payment_mode: data.payment_mode || "rib",
-          bank_name: data.bank_name || "",
           agency_name: data.agency_name || "",
           account_holder: data.account_holder || "",
           iban: data.iban || "",
@@ -64,7 +62,6 @@ export default function AdminPaymentSettings() {
       const updated = await updatePaymentInfo(form);
       setForm({
         payment_mode: updated.payment_mode || "rib",
-        bank_name: updated.bank_name || "",
         agency_name: updated.agency_name || "",
         account_holder: updated.account_holder || "",
         iban: updated.iban || "",
@@ -120,10 +117,6 @@ export default function AdminPaymentSettings() {
         <label>
           Nom de l'agence
           <input value={form.agency_name} onChange={(e) => update("agency_name", e.target.value)} />
-        </label>
-        <label>
-          Banque
-          <input value={form.bank_name} onChange={(e) => update("bank_name", e.target.value)} />
         </label>
         <label>
           Titulaire du compte
