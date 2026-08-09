@@ -7,8 +7,8 @@ export const SHOP = {
   lng: 9.4518763,
 };
 
-// Tarif au kilomètre, en euros. 0,02 € => 2 € pour 100 km.
-export const DELIVERY_RATE_PER_KM = 0.01;
+// Tarif au kilomètre, en euros. 0,004 € => 0,40 € pour 100 km.
+export const DELIVERY_RATE_PER_KM = 0.01 / 2.5;
 
 // Distance « à vol d'oiseau » (Haversine), en km.
 export function haversineKm(a, b) {

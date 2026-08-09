@@ -41,11 +41,13 @@ const pool = new Pool(
 
 const PORT = Number(process.env.PORT || 4000);
 
-// Table des réglages entreprise (SIRET, etc.), créée au démarrage si absente
-// (une seule ligne, id fixe = 1, même schéma singleton que payment_settings).
+// Table des réglages entreprise (SIRET, etc.). Une table "settings" existait
+// déjà en base avec un schéma différent (sans colonne id) : on se contente
+// donc d'ajouter la colonne siret si besoin, sans supposer de clé primaire.
 pool
-  .query(`CREATE TABLE IF NOT EXISTS settings (id INT PRIMARY KEY DEFAULT 1, siret TEXT)`)
-  .catch((e) => console.error("[settings] création table impossible :", e.message));
+  .query(`CREATE TABLE IF NOT EXISTS settings (siret TEXT)`)
+  .then(() => pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS siret TEXT`))
+  .catch((e) => console.error("[settings] migration impossible :", e.message));
 
 // Routes back-office (login, commandes, produits, factures PDF)
 const registerAdminRoutes = require("./admin");

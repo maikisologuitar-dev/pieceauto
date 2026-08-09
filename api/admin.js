@@ -750,9 +750,11 @@ module.exports = function registerAdminRoutes(app, pool) {
   });
 
   // --- Réglages entreprise (SIRET, etc.) ---
+  // Table "settings" au schéma incertain (pas de clé primaire garantie) :
+  // on lit/écrit la première ligne sans supposer d'id.
   app.get("/api/admin/settings", requireAuth, async (_req, res) => {
     try {
-      const r = await pool.query("SELECT siret FROM settings WHERE id = 1");
+      const r = await pool.query("SELECT siret FROM settings LIMIT 1");
       res.json(r.rows[0] || { siret: "" });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -762,13 +764,13 @@ module.exports = function registerAdminRoutes(app, pool) {
   app.put("/api/admin/settings", requireAuth, async (req, res) => {
     const { siret } = req.body || {};
     try {
-      const r = await pool.query(
-        `INSERT INTO settings (id, siret) VALUES (1, $1)
-         ON CONFLICT (id) DO UPDATE SET siret = EXCLUDED.siret
-         RETURNING siret`,
-        [siret || null]
-      );
-      res.json(r.rows[0]);
+      const existing = await pool.query("SELECT ctid FROM settings LIMIT 1");
+      if (existing.rows.length) {
+        await pool.query(`UPDATE settings SET siret = $1 WHERE ctid = $2`, [siret || null, existing.rows[0].ctid]);
+      } else {
+        await pool.query(`INSERT INTO settings (siret) VALUES ($1)`, [siret || null]);
+      }
+      res.json({ siret: siret || null });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
