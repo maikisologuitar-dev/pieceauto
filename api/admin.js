@@ -235,10 +235,8 @@ async function buildInvoicePdf(order, items, bank = null, siret = "") {
   // Ligne livraison
   const deliveryFee = Number(order.delivery_fee_cents) || 0;
   if (deliveryFee > 0) {
-    const km = Number(order.delivery_km) || 0;
-    const label = km > 0 ? `Frais de livraison (${km.toFixed(1)} km)` : "Frais de livraison";
     totalHT += deliveryFee;
-    drawRow(label, "-", 1, euro(deliveryFee), euro(deliveryFee));
+    drawRow("Frais de livraison", "-", 1, euro(deliveryFee), euro(deliveryFee));
   }
 
   // Encadré totaux
@@ -280,7 +278,7 @@ async function buildInvoicePdf(order, items, bank = null, siret = "") {
   } else if (bank && (bank.agency_name || bank.iban)) {
     const bankLines = [
       bank.agency_name ? `Agence : ${bank.agency_name}` : null,
-      bank.account_holder ? `Titulaire : ${bank.account_holder}` : null,
+      bank.account_holder ? `Titulaire du compte : ${bank.account_holder}` : null,
       bank.iban ? `IBAN : ${bank.iban}` : null,
       bank.bic ? `BIC : ${bank.bic}` : null,
     ].filter(Boolean);

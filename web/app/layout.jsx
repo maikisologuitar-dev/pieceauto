@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LocationMap from "@/components/LocationMap";
 import FloatingCart from "@/components/FloatingCart";
+import FloatingWhatsApp from "@/components/FloatingWhatsApp";
 
 export const metadata = {
   title: "PiècesAuto — Pièces et équipement automobile",
@@ -21,6 +22,7 @@ export default function RootLayout({ children }) {
           <LocationMap />
           <Footer />
           <FloatingCart />
+          <FloatingWhatsApp />
         </CartProvider>
       </body>
     </html>

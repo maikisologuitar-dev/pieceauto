@@ -145,7 +145,7 @@ export default function CheckoutPage() {
             {deliveryLoading
               ? "calcul en cours…"
               : delivery
-              ? `${formatPrice(deliveryFeeCents)} (${delivery.km.toFixed(1)} km)`
+              ? formatPrice(deliveryFeeCents)
               : deliveryErr
               ? "à confirmer"
               : "renseignez votre adresse"}
