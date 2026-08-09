@@ -53,7 +53,7 @@ pool
 const registerAdminRoutes = require("./admin");
 registerAdminRoutes(app, pool);
 // Réutilise la génération PDF de l'admin pour le reçu client public
-const { buildInvoicePdf } = registerAdminRoutes;
+const { buildInvoicePdf, getCompanySiret } = registerAdminRoutes;
 
 // ------------------------------------------------------------------ //
 // Upload public de la preuve de paiement (capture / reçu du virement).
@@ -497,7 +497,8 @@ app.get("/api/orders/:number/receipt", async (req, res) => {
       "SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [order.id]
     );
     const bankRes = await pool.query("SELECT * FROM payment_settings WHERE id = 1");
-    const pdfBytes = await buildInvoicePdf(order, items.rows, bankRes.rows[0] || null);
+    const siret = await getCompanySiret(pool);
+    const pdfBytes = await buildInvoicePdf(order, items.rows, bankRes.rows[0] || null, siret);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="recu-${number}.pdf"`);
     res.send(Buffer.from(pdfBytes));

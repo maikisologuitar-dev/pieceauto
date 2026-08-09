@@ -100,6 +100,12 @@ async function getPaymentSettings(pool) {
   return r.rows[0] || null;
 }
 
+// ---------- SIRET enregistré depuis la page Réglages ----------
+async function getCompanySiret(pool) {
+  const r = await pool.query("SELECT siret FROM settings LIMIT 1");
+  return r.rows[0]?.siret || "";
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  INFORMATIONS LÉGALES DE L'ENTREPRISE (affichées sur chaque facture)
 //  >>> À COMPLÉTER avec les vraies valeurs <<<
@@ -117,7 +123,7 @@ const COMPANY = {
 };
 
 // ---------- Génération facture PDF (mise en page professionnelle) ----------
-async function buildInvoicePdf(order, items, bank = null) {
+async function buildInvoicePdf(order, items, bank = null, siret = "") {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([595, 842]); // A4
   const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -162,7 +168,7 @@ async function buildInvoicePdf(order, items, bank = null) {
     COMPANY.address,
     [COMPANY.phone && `Tél : ${COMPANY.phone}`, COMPANY.email && `Email : ${COMPANY.email}`].filter(Boolean).join("   "),
     [
-      COMPANY.siret ? `SIRET : ${COMPANY.siret}` : "SIRET : — à compléter —",
+      siret ? `SIRET : ${siret}` : "SIRET : — à compléter —",
       COMPANY.tva ? `TVA : ${COMPANY.tva}` : "",
       COMPANY.rcs || "",
     ].filter(Boolean).join("   |   "),
@@ -170,9 +176,17 @@ async function buildInvoicePdf(order, items, bank = null) {
   for (const l of legal) { text(l, M, y, 8.5, font, gray); y -= 12; }
   y -= 12;
 
-  // Bloc Client (encadré)
+  // Bloc Client (encadré) — hauteur calculée selon le nombre de lignes réelles
+  // (évite le débordement quand email + téléphone s'ajoutent aux 3 lignes d'adresse).
   const boxTop = y;
-  const boxH = 74;
+  const clientLines = [
+    order.address_line,
+    `${order.postal_code} ${order.city}`,
+    order.country,
+    order.customer_email,
+    order.customer_phone,
+  ].filter(Boolean);
+  const boxH = 41 + clientLines.length * 12;
   page.drawRectangle({
     x: M, y: boxTop - boxH, width: width - 2 * M, height: boxH,
     color: lightBg, borderColor: rgb(0.88, 0.90, 0.89), borderWidth: 1,
@@ -180,12 +194,6 @@ async function buildInvoicePdf(order, items, bank = null) {
   let cy = boxTop - 16;
   text("FACTURÉ À", M + 12, cy, 8, bold, gray); cy -= 14;
   text(order.customer_name, M + 12, cy, 11, bold, dark); cy -= 13;
-  const clientLines = [
-    order.address_line,
-    `${order.postal_code} ${order.city}`,
-    order.country,
-    [order.customer_email, order.customer_phone].filter(Boolean).join("  ·  "),
-  ].filter(Boolean);
   for (const l of clientLines) { text(l, M + 12, cy, 9, font, dark); cy -= 12; }
   y = boxTop - boxH - 24;
 
@@ -410,8 +418,8 @@ module.exports = function registerAdminRoutes(app, pool) {
       const items = await pool.query(
         "SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [req.params.id]
       );
-      const bank = await getPaymentSettings(pool);
-      const pdfBytes = await buildInvoicePdf(o.rows[0], items.rows, bank);
+      const [bank, siret] = await Promise.all([getPaymentSettings(pool), getCompanySiret(pool)]);
+      const pdfBytes = await buildInvoicePdf(o.rows[0], items.rows, bank, siret);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="facture-${o.rows[0].order_number}.pdf"`);
       res.send(Buffer.from(pdfBytes));
@@ -933,3 +941,4 @@ module.exports = function registerAdminRoutes(app, pool) {
 // Export de la génération PDF pour réutilisation côté public
 // (server.js l'utilise pour le reçu client, sans dupliquer le code).
 module.exports.buildInvoicePdf = buildInvoicePdf;
+module.exports.getCompanySiret = getCompanySiret;
