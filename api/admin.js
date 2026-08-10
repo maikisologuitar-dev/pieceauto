@@ -19,6 +19,7 @@
 
 const crypto = require("crypto");
 const { PDFDocument, StandardFonts, rgb, PDFName, PDFString } = require("pdf-lib");
+const { sendOrderReceiptEmail } = require("./mailer");
 
 // ---------- Annotation de lien cliquable ----------
 function addLinkAnnotation(pdfDoc, page, rect, url) {
@@ -305,6 +306,142 @@ async function buildInvoicePdf(order, items, bank = null, siret = "") {
   return pdf.save();
 }
 
+// ---------- Génération reçu PDF de confirmation (envoyé par email au client) ----------
+async function buildReceiptPdf(order, items, siret = "") {
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([595, 842]); // A4
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const { width, height } = page.getSize();
+
+  const green = rgb(0.06, 0.32, 0.20);
+  const dark = rgb(0.12, 0.16, 0.21);
+  const gray = rgb(0.42, 0.45, 0.50);
+  const lightBg = rgb(0.96, 0.97, 0.96);
+  const white = rgb(1, 1, 1);
+
+  const M = 45;
+  const RIGHT = width - M;
+  let y = height - 50;
+
+  const text = (s, x, yy, size, f = font, color = dark) =>
+    page.drawText(String(s ?? ""), { x, y: yy, size, font: f, color });
+  const textRight = (s, xRight, yy, size, f = font, color = dark) => {
+    const w = f.widthOfTextAtSize(String(s ?? ""), size);
+    page.drawText(String(s ?? ""), { x: xRight - w, y: yy, size, font: f, color });
+  };
+  const textCenter = (s, cx, yy, size, f = font, color = dark) => {
+    const w = f.widthOfTextAtSize(String(s ?? ""), size);
+    page.drawText(String(s ?? ""), { x: cx - w / 2, y: yy, size, font: f, color });
+  };
+
+  // En-tête
+  text(COMPANY.name, M, y, 22, bold, green);
+  textRight("REÇU", RIGHT, y, 20, bold, dark);
+  y -= 16;
+  text(COMPANY.tagline, M, y, 9, font, gray);
+  textRight(order.order_number, RIGHT, y, 11, bold, green);
+  y -= 14;
+  const dateStr = new Date().toLocaleDateString("fr-FR");
+  textRight(`Date : ${dateStr}`, RIGHT, y, 9, font, gray);
+
+  y -= 10;
+  page.drawRectangle({ x: M, y, width: width - 2 * M, height: 2, color: green });
+  y -= 22;
+
+  const legal = [
+    COMPANY.address,
+    [COMPANY.phone && `Tél : ${COMPANY.phone}`, COMPANY.email && `Email : ${COMPANY.email}`].filter(Boolean).join("   "),
+    siret ? `SIRET : ${siret}` : "",
+  ].filter(Boolean);
+  for (const l of legal) { text(l, M, y, 8.5, font, gray); y -= 12; }
+  y -= 12;
+
+  // Bandeau d'approbation
+  page.drawRectangle({ x: M, y: y - 34, width: width - 2 * M, height: 34, color: green });
+  textCenter("COMMANDE APPROUVÉE ET PAIEMENT REÇU", M + (width - 2 * M) / 2, y - 22, 13, bold, white);
+  y -= 54;
+
+  // Message client
+  const message =
+    "Votre commande a bien été prise en charge et sera acheminée entre 2 à 5 jours.";
+  textCenter(message, width / 2, y, 11, font, dark);
+  y -= 30;
+
+  // Bloc Client
+  const boxTop = y;
+  const clientLines = [
+    order.address_line,
+    `${order.postal_code} ${order.city}`,
+    order.customer_email,
+    order.customer_phone,
+  ].filter(Boolean);
+  const boxH = 41 + clientLines.length * 12;
+  page.drawRectangle({
+    x: M, y: boxTop - boxH, width: width - 2 * M, height: boxH,
+    color: lightBg, borderColor: rgb(0.88, 0.90, 0.89), borderWidth: 1,
+  });
+  let cy = boxTop - 16;
+  text("CLIENT", M + 12, cy, 8, bold, gray); cy -= 14;
+  text(order.customer_name, M + 12, cy, 11, bold, dark); cy -= 13;
+  for (const l of clientLines) { text(l, M + 12, cy, 9, font, dark); cy -= 12; }
+  y = boxTop - boxH - 24;
+
+  // Récapitulatif articles (compact)
+  const colX = { desig: M + 8, qty: 400, total: RIGHT };
+  page.drawRectangle({ x: M, y: y - 6, width: width - 2 * M, height: 22, color: lightBg, borderColor: rgb(0.88, 0.90, 0.89), borderWidth: 1 });
+  const headY = y + 1;
+  text("DÉSIGNATION", colX.desig, headY, 8.5, bold, gray);
+  text("QTÉ", colX.qty, headY, 8.5, bold, gray);
+  textRight("MONTANT", colX.total, headY, 8.5, bold, gray);
+  y -= 22;
+
+  for (const it of items) {
+    const d = it.title.length > 52 ? it.title.slice(0, 50) + "…" : it.title;
+    text(d, colX.desig, y, 9.5, font, dark);
+    text(String(it.quantity), colX.qty, y, 9.5, font, dark);
+    textRight(euro(it.unit_cents * it.quantity), colX.total, y, 9.5, font, dark);
+    y -= 16;
+  }
+
+  const deliveryFee = Number(order.delivery_fee_cents) || 0;
+  if (deliveryFee > 0) {
+    text("Frais de livraison", colX.desig, y, 9.5, font, dark);
+    text("1", colX.qty, y, 9.5, font, dark);
+    textRight(euro(deliveryFee), colX.total, y, 9.5, font, dark);
+    y -= 16;
+  }
+
+  // Montant payé
+  y -= 10;
+  page.drawLine({ start: { x: M, y: y + 6 }, end: { x: RIGHT, y: y + 6 }, thickness: 1, color: rgb(0.85, 0.87, 0.86) });
+  y -= 10;
+  text("Mode de règlement : " + (PAYMENT_LABELS[order.payment_method] || order.payment_method), M, y, 10, font, gray);
+  y -= 8;
+  const totalsY = y - 24;
+  page.drawRectangle({ x: 330, y: totalsY, width: RIGHT - 330, height: 30, color: green });
+  text("MONTANT PAYÉ", 342, totalsY + 10, 11, bold, white);
+  textRight(euro(order.total_cents), RIGHT - 12, totalsY + 10, 13, bold, white);
+  y = totalsY - 44;
+
+  // Signature
+  const sigX = RIGHT - 180;
+  text("Pour " + COMPANY.name + " :", sigX, y, 9, font, gray); y -= 34;
+  page.drawLine({ start: { x: sigX, y }, end: { x: RIGHT, y }, thickness: 1, color: gray });
+  y -= 12;
+  textRight("Signature", RIGHT, y, 9, font, gray);
+
+  // Pied de page
+  const footY = 54;
+  page.drawLine({ start: { x: M, y: footY + 18 }, end: { x: RIGHT, y: footY + 18 }, thickness: 1, color: rgb(0.85, 0.87, 0.86) });
+  const thanks = "Merci pour votre confiance !";
+  textCenter(thanks, width / 2, footY, 10, bold, green);
+  const sub = "Nous restons à votre disposition pour toute information complémentaire.";
+  textCenter(sub, width / 2, footY - 13, 8, font, gray);
+
+  return pdf.save();
+}
+
 // ---------- Montage des routes ----------
 module.exports = function registerAdminRoutes(app, pool) {
   // Middleware d'authentification
@@ -398,11 +535,35 @@ module.exports = function registerAdminRoutes(app, pool) {
     try {
       const invoicedClause = status === "facturee" ? ", invoiced_at = COALESCE(invoiced_at, now())" : "";
       const r = await pool.query(
-        `UPDATE orders SET status = $1 ${invoicedClause} WHERE id = $2 RETURNING id, status`,
+        `UPDATE orders SET status = $1 ${invoicedClause} WHERE id = $2 RETURNING *`,
         [status, req.params.id]
       );
       if (!r.rows.length) return res.status(404).json({ error: "Commande introuvable" });
-      res.json(r.rows[0]);
+      const order = r.rows[0];
+
+      // Confirmation de commande : dès que la commande passe en "payée", on
+      // génère le reçu (montant payé, approbation, signature) et on l'envoie
+      // par email au client. Protégé par receipt_sent_at pour ne l'envoyer
+      // qu'une seule fois, même si le statut est modifié à nouveau ensuite.
+      let receipt_emailed = false;
+      if (status === "payee" && !order.receipt_sent_at) {
+        try {
+          const items = await pool.query(
+            "SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [order.id]
+          );
+          const siret = await getCompanySiret(pool);
+          const pdfBytes = await buildReceiptPdf(order, items.rows, siret);
+          const result = await sendOrderReceiptEmail(order, pdfBytes);
+          if (result.sent) {
+            await pool.query("UPDATE orders SET receipt_sent_at = now() WHERE id = $1", [order.id]);
+            receipt_emailed = true;
+          }
+        } catch (mailErr) {
+          console.error(`[receipt] échec d'envoi pour ${order.order_number} :`, mailErr.message);
+        }
+      }
+
+      res.json({ id: order.id, status: order.status, receipt_emailed });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -939,4 +1100,5 @@ module.exports = function registerAdminRoutes(app, pool) {
 // Export de la génération PDF pour réutilisation côté public
 // (server.js l'utilise pour le reçu client, sans dupliquer le code).
 module.exports.buildInvoicePdf = buildInvoicePdf;
+module.exports.buildReceiptPdf = buildReceiptPdf;
 module.exports.getCompanySiret = getCompanySiret;

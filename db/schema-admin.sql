@@ -15,3 +15,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
 
 -- Colonne facultative pour tracer l'émission de facture sur une commande
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS invoiced_at TIMESTAMPTZ;
+
+-- Colonne facultative pour tracer l'envoi du reçu de confirmation par email
+-- (déclenché quand la commande passe au statut "payée" dans le dashboard).
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_sent_at TIMESTAMPTZ;

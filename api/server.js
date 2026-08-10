@@ -11,6 +11,8 @@
  * Démarrage :  node server.js   (port 4000 par défaut)
  */
 
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
@@ -48,6 +50,12 @@ pool
   .query(`CREATE TABLE IF NOT EXISTS settings (siret TEXT)`)
   .then(() => pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS siret TEXT`))
   .catch((e) => console.error("[settings] migration impossible :", e.message));
+
+// Trace l'envoi du reçu de confirmation (email) pour ne l'envoyer qu'une fois
+// par commande, quand le statut passe à "payée" depuis le dashboard.
+pool
+  .query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_sent_at TIMESTAMPTZ`)
+  .catch((e) => console.error("[orders] migration receipt_sent_at impossible :", e.message));
 
 // Routes back-office (login, commandes, produits, factures PDF)
 const registerAdminRoutes = require("./admin");

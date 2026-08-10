@@ -27,9 +27,15 @@ export default function OrderDetail() {
   const changeStatus = async (status) => {
     setSaving(true); setMsg(""); setErr("");
     try {
-      await updateOrderStatus(id, status);
+      const result = await updateOrderStatus(id, status);
       await load();
-      setMsg("Statut mis à jour.");
+      setMsg(
+        status === "payee"
+          ? (result.receipt_emailed
+              ? "Statut mis à jour. Reçu de confirmation envoyé au client par email."
+              : "Statut mis à jour. Le reçu n'a pas pu être envoyé par email (SMTP non configuré ou déjà envoyé).")
+          : "Statut mis à jour."
+      );
     } catch (e) { setErr(e.message); }
     setSaving(false);
   };
