@@ -19,6 +19,11 @@ const crypto = require("crypto");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 const { Pool } = require("pg");
+const {
+  sendNewOrderAdminEmail,
+  sendProofUploadedAdminEmail,
+  sendProofPendingClientEmail,
+} = require("./mailer");
 
 const app = express();
 app.use(cors());
@@ -427,6 +432,27 @@ app.post("/api/orders", async (req, res) => {
     }
 
     await client.query("COMMIT");
+
+    // Notifie l'admin de la nouvelle commande (pour relancer le client si le
+    // paiement tarde). Ne doit jamais faire échouer la commande elle-même.
+    try {
+      const orderForMail = {
+        order_number: orderNumber,
+        customer_name: customer.name,
+        customer_email: customer.email,
+        customer_phone: customer.phone || null,
+        address_line: customer.address_line,
+        postal_code: customer.postal_code,
+        city: customer.city,
+        payment_method,
+        total_cents: total,
+      };
+      const mailItems = lines.map((l) => ({ title: l.title, quantity: l.quantity, unit_cents: l.price_cents }));
+      await sendNewOrderAdminEmail(orderForMail, mailItems);
+    } catch (mailErr) {
+      console.error(`[mailer] échec notification nouvelle commande ${orderNumber} :`, mailErr.message);
+    }
+
     res.status(201).json({
       order_number: orderRes.rows[0].order_number,
       total_cents: total,
@@ -474,6 +500,19 @@ app.post("/api/orders/:number/proof", (req, res) => {
         "UPDATE orders SET proof_url = $1, proof_uploaded_at = now() WHERE id = $2",
         [url, order.id]
       );
+
+      try {
+        const items = await pool.query(
+          "SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [order.id]
+        );
+        await Promise.all([
+          sendProofUploadedAdminEmail(order, items.rows, url),
+          sendProofPendingClientEmail(order),
+        ]);
+      } catch (mailErr) {
+        console.error(`[mailer] échec notification preuve de paiement ${order.order_number} :`, mailErr.message);
+      }
+
       res.json({ ok: true, proof_url: url });
     } catch (e) {
       res.status(500).json({ error: e.message });
