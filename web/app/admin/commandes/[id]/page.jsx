@@ -136,13 +136,17 @@ export default function OrderDetail() {
               📄 Générer la facture PDF
             </button>
 
-            <button className="admin-btn primary" style={{ width: "100%", marginTop: 10 }}
-              onClick={sendReceiptByEmail}>
-              ✉️ Envoyer le reçu par email
-            </button>
-            <p style={{ fontSize: 12, color: "var(--steel)", marginTop: 6 }}>
-              Ouvre le reçu PDF (à télécharger) puis votre client mail avec le message pré-rempli — pensez à joindre le PDF et les éventuelles photos avant l'envoi.
-            </p>
+            {order.status === "payee" && (
+              <>
+                <button className="admin-btn primary" style={{ width: "100%", marginTop: 10 }}
+                  onClick={sendReceiptByEmail}>
+                  ✉️ Envoyer le reçu par email
+                </button>
+                <p style={{ fontSize: 12, color: "var(--steel)", marginTop: 6 }}>
+                  Ouvre le reçu PDF (à télécharger) puis votre client mail avec le message pré-rempli — pensez à joindre le PDF et les éventuelles photos avant l'envoi.
+                </p>
+              </>
+            )}
 
             {msg && <p style={{ color: "var(--ok)", fontSize: 13, marginTop: 10 }}>{msg}</p>}
             {err && <p style={{ color: "var(--accent-dark)", fontSize: 13, marginTop: 10 }}>{err}</p>}
