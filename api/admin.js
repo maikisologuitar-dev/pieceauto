@@ -19,7 +19,6 @@
 
 const crypto = require("crypto");
 const { PDFDocument, StandardFonts, rgb, PDFName, PDFString } = require("pdf-lib");
-const { sendOrderReceiptEmail } = require("./mailer");
 
 // ---------- Annotation de lien cliquable ----------
 function addLinkAnnotation(pdfDoc, page, rect, url) {
@@ -541,29 +540,26 @@ module.exports = function registerAdminRoutes(app, pool) {
       if (!r.rows.length) return res.status(404).json({ error: "Commande introuvable" });
       const order = r.rows[0];
 
-      // Confirmation de commande : dès que la commande passe en "payée", on
-      // génère le reçu (montant payé, approbation, signature) et on l'envoie
-      // par email au client. Protégé par receipt_sent_at pour ne l'envoyer
-      // qu'une seule fois, même si le statut est modifié à nouveau ensuite.
-      let receipt_emailed = false;
-      if (status === "payee" && !order.receipt_sent_at) {
-        try {
-          const items = await pool.query(
-            "SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [order.id]
-          );
-          const siret = await getCompanySiret(pool);
-          const pdfBytes = await buildReceiptPdf(order, items.rows, siret);
-          const result = await sendOrderReceiptEmail(order, pdfBytes);
-          if (result.sent) {
-            await pool.query("UPDATE orders SET receipt_sent_at = now() WHERE id = $1", [order.id]);
-            receipt_emailed = true;
-          }
-        } catch (mailErr) {
-          console.error(`[receipt] échec d'envoi pour ${order.order_number} :`, mailErr.message);
-        }
-      }
+      res.json({ id: order.id, status: order.status });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
-      res.json({ id: order.id, status: order.status, receipt_emailed });
+  // --- Reçu de confirmation PDF (montant payé, approbation, signature) ---
+  // Téléchargé par l'admin pour le joindre manuellement à son email au client.
+  app.get("/api/admin/orders/:id/receipt", requireAuth, async (req, res) => {
+    try {
+      const o = await pool.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
+      if (!o.rows.length) return res.status(404).json({ error: "Commande introuvable" });
+      const items = await pool.query(
+        "SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [req.params.id]
+      );
+      const siret = await getCompanySiret(pool);
+      const pdfBytes = await buildReceiptPdf(o.rows[0], items.rows, siret);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="recu-${o.rows[0].order_number}.pdf"`);
+      res.send(Buffer.from(pdfBytes));
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

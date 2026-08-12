@@ -160,6 +160,14 @@ export async function openInvoice(id) {
   window.open(url, "_blank");
 }
 
+// Ouvre le reçu de confirmation PDF (à joindre manuellement à l'email client)
+export async function openReceipt(id) {
+  const r = await authFetch(`/api/admin/orders/${id}/receipt`);
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+}
+
 // --- Coordonnées bancaires (RIB) affichées au client + sur les factures ---
 export async function getAdminPaymentInfo() {
   const r = await authFetch("/api/admin/payment-info");

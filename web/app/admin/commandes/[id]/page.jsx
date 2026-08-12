@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getOrder, updateOrderStatus, openInvoice } from "@/lib/admin";
+import { getOrder, updateOrderStatus, openInvoice, openReceipt } from "@/lib/admin";
 
 const STATUS_LABELS = {
   en_attente: "En attente", facturee: "Facturée", payee: "Payée",
@@ -13,6 +13,35 @@ const PAY_LABELS = {
   livraison: "Règlement à la livraison", especes: "Espèces au retrait",
 };
 function euro(c){ return new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR"}).format((c||0)/100); }
+
+function buildReceiptMailto(order) {
+  const lines = [
+    `Bonjour ${order.customer_name},`,
+    "",
+    "Votre commande a bien été prise en charge et sera acheminée entre 2 à 5 jours.",
+    "",
+    `Commande : ${order.order_number}`,
+    "",
+  ];
+  for (const it of order.items) {
+    lines.push(`- ${it.title} x${it.quantity} — ${euro(it.unit_cents * it.quantity)}`);
+  }
+  if (order.delivery_fee_cents) {
+    lines.push(`- Frais de livraison — ${euro(order.delivery_fee_cents)}`);
+  }
+  lines.push(
+    "",
+    `Montant payé : ${euro(order.total_cents)}`,
+    `Mode de règlement : ${PAY_LABELS[order.payment_method] || order.payment_method}`,
+    "",
+    "(Pensez à joindre le reçu PDF téléchargé et, le cas échéant, les photos avant l'envoi.)",
+    "",
+    "Cordialement,",
+    "L'équipe PiècesAuto Corse",
+  );
+  const subject = `Confirmation de votre commande ${order.order_number} — PiècesAuto Corse`;
+  return `mailto:${order.customer_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join("\n"))}`;
+}
 
 export default function OrderDetail() {
   const { id } = useParams();
@@ -27,17 +56,23 @@ export default function OrderDetail() {
   const changeStatus = async (status) => {
     setSaving(true); setMsg(""); setErr("");
     try {
-      const result = await updateOrderStatus(id, status);
+      await updateOrderStatus(id, status);
       await load();
       setMsg(
         status === "payee"
-          ? (result.receipt_emailed
-              ? "Statut mis à jour. Reçu de confirmation envoyé au client par email."
-              : "Statut mis à jour. Le reçu n'a pas pu être envoyé par email (SMTP non configuré ou déjà envoyé).")
+          ? "Statut mis à jour. Utilisez le bouton « Envoyer le reçu par email » ci-dessous pour confirmer au client."
           : "Statut mis à jour."
       );
     } catch (e) { setErr(e.message); }
     setSaving(false);
+  };
+
+  const sendReceiptByEmail = async () => {
+    setErr("");
+    try {
+      await openReceipt(order.id); // ouvre le PDF dans un nouvel onglet, à télécharger et joindre
+      window.location.href = buildReceiptMailto(order);
+    } catch (e) { setErr(e.message); }
   };
 
   if (err) return <p style={{ color: "var(--accent-dark)" }}>{err}</p>;
@@ -100,6 +135,14 @@ export default function OrderDetail() {
               onClick={() => openInvoice(order.id)}>
               📄 Générer la facture PDF
             </button>
+
+            <button className="admin-btn primary" style={{ width: "100%", marginTop: 10 }}
+              onClick={sendReceiptByEmail}>
+              ✉️ Envoyer le reçu par email
+            </button>
+            <p style={{ fontSize: 12, color: "var(--steel)", marginTop: 6 }}>
+              Ouvre le reçu PDF (à télécharger) puis votre client mail avec le message pré-rempli — pensez à joindre le PDF et les éventuelles photos avant l'envoi.
+            </p>
 
             {msg && <p style={{ color: "var(--ok)", fontSize: 13, marginTop: 10 }}>{msg}</p>}
             {err && <p style={{ color: "var(--accent-dark)", fontSize: 13, marginTop: 10 }}>{err}</p>}
