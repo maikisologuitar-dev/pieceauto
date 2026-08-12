@@ -19,3 +19,8 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS invoiced_at TIMESTAMPTZ;
 -- Colonne facultative pour tracer l'envoi du reçu de confirmation par email
 -- (déclenché quand la commande passe au statut "payée" dans le dashboard).
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_sent_at TIMESTAMPTZ;
+
+-- Colonnes pour la preuve de paiement téléversée par le client (capture
+-- d'écran / reçu de virement, stockée sur Cloudinary).
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS proof_url TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS proof_uploaded_at TIMESTAMPTZ;
